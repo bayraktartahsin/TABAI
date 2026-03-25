@@ -1,0 +1,11 @@
+{
+    "taiAPIBaseURL": "https://ai.gravitilabs.com",
+    "taiBaseURL": "https://ai.gravitilabs.com",
+    "productionBaseURL": "https://ai.gravitilabs.com",
+    "localDevelopmentBaseURL": "http://127.0.0.1:3000",
+    "iosProductIdStarter": "com.tai.starter.monthly",
+    "iosProductIdPro": "com.tai.pro.monthly",
+    "iosProductIdPower": "com.tai.power.monthly",
+    "authMode": "signin",
+    "requestTimeoutSeconds": 30
+}

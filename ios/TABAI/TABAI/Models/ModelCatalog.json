@@ -1,0 +1,20 @@
+{
+  "models": [
+    {
+      "id": "cmmhn8hnl0003vb3ux135iry5",
+      "displayName": "GPT-4o mini",
+      "providerModelId": "gpt-4o-mini",
+      "providerName": "TAI Hosted",
+      "providerSlug": "openwebui",
+      "logoURL": "/tai-icons/openai.svg"
+    },
+    {
+      "id": "cmmhprnnj0008vbydxtiwyull",
+      "displayName": "Qwen 2.5 Coder 7B",
+      "providerModelId": "qwen2.5-coder:7b",
+      "providerName": "Ollama Local",
+      "providerSlug": "ollama-local",
+      "logoURL": "/tai-icons/default.svg"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+-keepattributes *Annotation*
+-keep class kotlinx.serialization.** { *; }
+-keepclassmembers class com.taba.tabai.data.dto.** { *; }
+-keep class com.taba.tabai.domain.model.** { *; }
+-dontwarn org.bouncycastle.**
+-dontwarn org.conscrypt.**
+-dontwarn org.openjsse.**

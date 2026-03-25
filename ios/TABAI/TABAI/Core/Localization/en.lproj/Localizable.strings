@@ -1,0 +1,38 @@
+"app.name" = "TABAI";
+"auth.sign_in" = "Sign In";
+"auth.email" = "Email";
+"auth.password" = "Password";
+"auth.forgot_password" = "Forgot password?";
+
+"tabs.chat" = "Chat";
+"tabs.history" = "History";
+"tabs.settings" = "Settings";
+
+"chat.placeholder" = "Message TABA";
+"chat.send" = "Send";
+"chat.attach" = "Attach";
+"chat.mic" = "Mic";
+"chat.stop" = "Stop";
+"chat.regenerate" = "Regenerate";
+"chat.copy" = "Copy";
+"chat.edit" = "Edit";
+"chat.retry" = "Retry";
+"chat.suggested" = "Suggested";
+
+"history.title" = "History";
+"history.search" = "Search";
+"settings.title" = "Settings";
+"settings.theme" = "Theme";
+"settings.language" = "Language";
+"settings.model" = "Model";
+"settings.voice" = "Voice";
+"settings.voice_session" = "Voice Session";
+"settings.version" = "Version";
+"settings.sign_out" = "Sign Out";
+"voice.title" = "Voice Session";
+"voice.transcript" = "Live Transcript";
+"voice.transcript.empty" = "Start speaking to see the transcript.";
+"voice.start_listening" = "Start Listening";
+"voice.stop_listening" = "Stop Listening";
+"voice.tts_on" = "TTS On";
+"voice.tts_off" = "TTS Off";
