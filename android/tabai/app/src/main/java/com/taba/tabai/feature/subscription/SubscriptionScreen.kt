@@ -42,12 +42,12 @@ private fun featuresFor(tier: PlanTier): List<Feature> = when (tier) {
     PlanTier.POWER -> listOf(Feature("Free AI models", true, true), Feature("All AI models unlocked", false, true), Feature("Premium reasoning (O1, O3)", false, true), Feature("Maximum daily usage", false, true), Feature("4 concurrent chats", false, true), Feature("Priority access", false, true))
 }
 
-// Prices matching App Store (same worldwide pricing)
+// Prices matching App Store / Play Store
 private data class TierPricing(val monthlyPrice: String, val yearlyPrice: String, val yearlyMonthly: String, val discount: Int)
 private val pricing = mapOf(
-    PlanTier.STARTER to TierPricing("$4.99 /mo", "$39.99/yr", "$3.33 /mo", 33),
-    PlanTier.PRO to TierPricing("$14.99 /mo", "$119.99/yr", "$9.99 /mo", 33),
-    PlanTier.POWER to TierPricing("$29.99 /mo", "$239.99/yr", "$19.99 /mo", 33),
+    PlanTier.STARTER to TierPricing("$6.99 /mo", "$59.99/yr", "$5.00 /mo", 29),
+    PlanTier.PRO to TierPricing("$29.99 /mo", "$249.99/yr", "$20.83 /mo", 31),
+    PlanTier.POWER to TierPricing("$79.99 /mo", "$699.99/yr", "$58.33 /mo", 27),
 )
 
 // All tiers use the theme accent color

@@ -260,43 +260,63 @@ private struct AttachmentChip: View {
     let attachment: ChatViewModel.Attachment
     let onRemove: () -> Void
 
-    private var isUnsupported: Bool {
-        attachment.kind == .camera || attachment.kind == .file
-    }
-
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: iconName)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(isUnsupported ? .orange : DS.Colors.textSecondary)
+        if let thumbnail = attachment.thumbnail {
+            // Image thumbnail chip
+            ZStack(alignment: .topTrailing) {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 52, height: 52)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(DS.Colors.glassStroke, lineWidth: 0.5)
+                    )
 
-            Text(attachment.name)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(DS.Colors.textPrimary)
-                .lineLimit(1)
-
-            Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(DS.Colors.textSecondary)
+                Button(action: onRemove) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.white, .black.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .offset(x: 6, y: -6)
             }
-            .buttonStyle(.plain)
+        } else {
+            // Text file chip
+            HStack(spacing: 6) {
+                Image(systemName: iconName)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(DS.Colors.textSecondary)
+
+                Text(attachment.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(DS.Colors.textPrimary)
+                    .lineLimit(1)
+
+                Button(action: onRemove) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(DS.Colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(DS.Colors.fieldBackground)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(DS.Colors.textSecondary.opacity(0.1), lineWidth: 0.5)
+            )
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(DS.Colors.fieldBackground)
-        .clipShape(Capsule())
-        .overlay(
-            Capsule()
-                .stroke(isUnsupported ? Color.orange.opacity(0.5) : DS.Colors.textSecondary.opacity(0.1), lineWidth: 0.5)
-        )
     }
 
     private var iconName: String {
         switch attachment.kind {
         case .photo: return "photo"
         case .camera: return "camera"
-        case .file: return "doc"
+        case .file: return "doc.text"
         }
     }
 }

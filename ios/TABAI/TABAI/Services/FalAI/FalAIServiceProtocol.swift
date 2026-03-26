@@ -7,4 +7,5 @@ protocol FalAIServiceProtocol {
     func getResult(generationId: String) async throws -> GenerationRecord
     func getHistory(limit: Int, offset: Int) async throws -> [GenerationRecord]
     func cancel(generationId: String) async throws
+    func fetchQuota() async throws -> GenerationQuotaSnapshot
 }

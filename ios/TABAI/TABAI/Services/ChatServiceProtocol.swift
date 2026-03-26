@@ -44,5 +44,5 @@ protocol ChatServiceProtocol {
     func deleteFolder(id: String) async throws
     func completeChat(model: String, messages: [ChatMessageSummary]) async throws -> String
     /// Streams chat response from model. Returns the messageId of the created assistant message on backend.
-    func streamChat(chatId: String, model: String, messages: [ChatMessageSummary], onToken: @escaping (String) -> Void, onMetadata: ((String) -> Void)?) async throws -> String?
+    func streamChat(chatId: String, model: String, messages: [ChatMessageSummary], attachments: [[String: Any]]?, onToken: @escaping (String) -> Void, onMetadata: ((String) -> Void)?) async throws -> String?
 }

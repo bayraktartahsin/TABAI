@@ -72,6 +72,8 @@ final class SignInViewModel: ObservableObject {
                     fullName: credential.fullName,
                     email: credential.email
                 )
+            } catch let error as TABAIError {
+                errorMessage = error.localizedDescription
             } catch {
                 errorMessage = "Apple Sign-In failed. Please try again or use email."
             }

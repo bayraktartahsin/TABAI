@@ -34,13 +34,12 @@ struct FalModel: Identifiable {
     ]
 
     static let videoModels: [FalModel] = [
-        FalModel(id: "fal-ai/kling-video/v2.5/master/text-to-video", displayName: "TABAI Video", generationType: .video, minTier: .pro, costDescription: "~$1.12", speed: "~60s"),
+        FalModel(id: "fal-ai/kling-video/v1.5/pro/text-to-video", displayName: "TABAI Video", generationType: .video, minTier: .pro, costDescription: "~$0.50", speed: "~120s"),
         FalModel(id: "fal-ai/veo3", displayName: "TABAI Video Pro", generationType: .video, minTier: .power, costDescription: "~$1.00", speed: "~90s"),
-        FalModel(id: "fal-ai/sora-2-pro", displayName: "TABAI Video Ultra", generationType: .video, minTier: .power, costDescription: "~$2.50", speed: "~120s"),
     ]
 
     static let imageToVideoModels: [FalModel] = [
-        FalModel(id: "fal-ai/kling-video/v2.5/master/image-to-video", displayName: "Animate Photo", generationType: .imageToVideo, minTier: .pro, costDescription: "~$1.12", speed: "~60s"),
+        FalModel(id: "fal-ai/kling-video/v1.5/pro/image-to-video", displayName: "Animate Photo", generationType: .imageToVideo, minTier: .pro, costDescription: "~$0.50", speed: "~120s"),
     ]
 
     static func accessibleModels(for tier: PlanTier, type: GenerationType) -> [FalModel] {
@@ -53,6 +52,22 @@ struct FalModel: Identifiable {
         case .imageToVideo: source = imageToVideoModels
         }
         return source.filter { (tierOrder[$0.minTier] ?? 0) <= userLevel }
+    }
+
+    static var allModels: [FalModel] {
+        imageModels + videoModels + imageToVideoModels
+    }
+
+    static func isGenerationModel(_ modelId: String) -> Bool {
+        allModels.contains { $0.id == modelId }
+    }
+
+    static func generationType(for modelId: String) -> GenerationType? {
+        allModels.first { $0.id == modelId }?.generationType
+    }
+
+    static func model(for modelId: String) -> FalModel? {
+        allModels.first { $0.id == modelId }
     }
 }
 
@@ -120,6 +135,49 @@ struct GenerationRecord: Decodable, Identifiable {
 
 struct GenerationHistoryResponse: Decodable {
     let generations: [GenerationRecord]
+}
+
+struct GenerationQuotaUsage: Decodable {
+    let usedToday: Int
+    let limitPerDay: Int
+    let usedThisMonth: Int
+    let limitPerMonth: Int
+
+    var remainingToday: Int { max(0, limitPerDay - usedToday) }
+    var remainingThisMonth: Int { max(0, limitPerMonth - usedThisMonth) }
+}
+
+struct GenerationQuotaUnits: Decodable {
+    let used: Int
+    let limit: Int
+
+    var remaining: Int { max(0, limit - used) }
+    var percentUsed: Double {
+        guard limit > 0 else { return 0 }
+        return Double(used) / Double(limit)
+    }
+}
+
+struct GenerationQuotaSnapshot: Decodable {
+    let planTier: String
+    let images: GenerationQuotaUsage
+    let videos: GenerationQuotaUsage
+    let monthlyUnits: GenerationQuotaUnits
+    let generationEnabled: Bool
+
+    var tier: PlanTier {
+        PlanTier(rawValue: planTier) ?? .free
+    }
+
+    /// Whether the user can generate at least one more image right now.
+    var canGenerateImage: Bool {
+        generationEnabled && images.remainingToday > 0 && images.remainingThisMonth > 0 && monthlyUnits.remaining > 0
+    }
+
+    /// Whether the user can generate at least one more video right now.
+    var canGenerateVideo: Bool {
+        generationEnabled && videos.remainingToday > 0 && videos.remainingThisMonth > 0 && monthlyUnits.remaining > 0
+    }
 }
 
 // MARK: - AnyCodable helper

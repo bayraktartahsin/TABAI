@@ -59,9 +59,9 @@ final class StoreKitSubscriptionManager: ObservableObject {
             productsById = Dictionary(uniqueKeysWithValues: loaded.map { ($0.id, $0) })
             unavailableProductIds = productIds.filter { productsById[$0] == nil }
             if AppConfig.enableStoreKitDebugLogs {
-                print("TAI StoreKit products loaded: \(productsById.keys.sorted())")
+                TABLogger.debug("TAI StoreKit products loaded: \(productsById.keys.sorted())")
                 if unavailableProductIds.isEmpty == false {
-                    print("TAI StoreKit unavailable product IDs: \(unavailableProductIds)")
+                    TABLogger.debug("TAI StoreKit unavailable product IDs: \(unavailableProductIds)")
                 }
             }
             await refreshLocalEntitlements()
@@ -72,7 +72,7 @@ final class StoreKitSubscriptionManager: ObservableObject {
             }
         } catch {
             if AppConfig.enableStoreKitDebugLogs {
-                print("TAI StoreKit load failed: \(error)")
+                TABLogger.debug("TAI StoreKit load failed: \(error)")
             }
             state = .failed("Unable to load subscription products.")
         }
@@ -106,7 +106,7 @@ final class StoreKitSubscriptionManager: ObservableObject {
                     await transaction.finish()
                     lastSyncDebugDetails = syncDebugDetails(sync, transaction: transaction)
                     if AppConfig.enableStoreKitDebugLogs {
-                        print("TAI sync result: provider=\(sync.provider) state=\(sync.verificationState) code=\(sync.code)")
+                        TABLogger.debug("TAI sync result: provider=\(sync.provider) state=\(sync.verificationState) code=\(sync.code)")
                     }
                     if sync.verificationState == "verified" && sync.isEntitlementActive {
                         state = .success("Purchase synced. Your plan is now \(SubscriptionPlanCatalog.displayName(for: sync.entitlement?.planTier ?? plan.planTier)).")
@@ -130,7 +130,7 @@ final class StoreKitSubscriptionManager: ObservableObject {
         } catch {
             lastSyncDebugDetails = StoreEntitlementSyncService.debugSummary(for: error)
             if AppConfig.enableStoreKitDebugLogs {
-                print("TAI purchase failed: \(error)")
+                TABLogger.debug("TAI purchase failed: \(error)")
             }
             state = .failed(StoreEntitlementSyncService.userFacingMessage(for: error))
         }
@@ -143,7 +143,7 @@ final class StoreKitSubscriptionManager: ObservableObject {
             try await AppStore.sync()
         } catch {
             if AppConfig.enableStoreKitDebugLogs {
-                print("TAI AppStore.sync() failed: \(error)")
+                TABLogger.debug("TAI AppStore.sync() failed: \(error)")
             }
             state = .failed("Could not reach the App Store. Check your connection and try again.")
             return
@@ -176,7 +176,7 @@ final class StoreKitSubscriptionManager: ObservableObject {
                     syncDebugMessages.append(debug)
                 }
                 if AppConfig.enableStoreKitDebugLogs {
-                    print("TAI backend sync failed during restore for \(transaction.productID): \(error)")
+                    TABLogger.debug("TAI backend sync failed during restore for \(transaction.productID): \(error)")
                 }
             }
         }

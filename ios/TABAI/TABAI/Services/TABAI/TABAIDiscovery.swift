@@ -16,7 +16,7 @@ enum TABAIDiscovery {
     static func discover(baseURL: URL, session: URLSession = .shared) async -> TABAIDiscoveryResult? {
         guard AppConfig.enableDiscovery else {
             if AppConfig.enableNetworkDebugLogs {
-                print("TABAI discovery disabled; using local configuration")
+                TABLogger.debug("TABAI discovery disabled; using local configuration")
             }
             return nil
         }
@@ -64,9 +64,9 @@ enum TABAIDiscovery {
                     let authSchemes = parseAuthSchemes(json["components"])
 
                     if AppConfig.enableNetworkDebugLogs {
-                        print("TABAI OpenAPI found at: \(url.absoluteString)")
-                        print("Base API URL: \(baseAPIURL.absoluteString)")
-                        print("Detected auth: \(authSchemes.joined(separator: ", "))")
+                        TABLogger.debug("TABAI OpenAPI found at: \(url.absoluteString)")
+                        TABLogger.debug("Base API URL: \(baseAPIURL.absoluteString)")
+                        TABLogger.debug("Detected auth: \(authSchemes.joined(separator: ", "))")
                     }
 
                     AppConfig.discoveredOpenAPIURL = url.absoluteString
@@ -84,7 +84,7 @@ enum TABAIDiscovery {
         }
 
         if AppConfig.enableNetworkDebugLogs {
-            print("TABAI discovery failed: \(errors.joined(separator: " | "))")
+            TABLogger.debug("TABAI discovery failed: \(errors.joined(separator: " | "))")
         }
         return nil
     }

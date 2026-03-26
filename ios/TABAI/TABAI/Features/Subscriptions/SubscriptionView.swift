@@ -266,10 +266,17 @@ struct SubscriptionView: View {
                 }
 
                 if let price {
-                    let monthlyEquiv = cycle == .yearly
-                        ? String(format: "%.2f", NSDecimalNumber(decimal: price.price).doubleValue / 12)
-                        : price.displayPrice
-                    Text(cycle == .yearly ? "\(monthlyEquiv) /mo" : "\(price.displayPrice) /mo")
+                    let monthlyEquivValue = NSDecimalNumber(decimal: price.price).doubleValue / 12
+                    let currencyCode = price.priceFormatStyle.currencyCode ?? "USD"
+                    let monthlyEquivFormatted: String = {
+                        let formatter = NumberFormatter()
+                        formatter.numberStyle = .currency
+                        formatter.currencyCode = currencyCode
+                        formatter.maximumFractionDigits = 2
+                        formatter.minimumFractionDigits = 2
+                        return formatter.string(from: NSNumber(value: monthlyEquivValue)) ?? "$\(String(format: "%.2f", monthlyEquivValue))"
+                    }()
+                    Text(cycle == .yearly ? "\(monthlyEquivFormatted) /mo" : "\(price.displayPrice) /mo")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(DS.Colors.textPrimary)
 
@@ -360,33 +367,32 @@ struct SubscriptionView: View {
         case .starter:
             return [
                 ("Free AI models", true, true),
-                ("Access to top AI models", false, true),
+                ("Top AI models", false, true),
+                ("100+ messages/day", false, true),
+                ("5 AI images/month", false, true),
                 ("Vision models", false, true),
-                ("Higher daily usage", false, true),
-                ("2 concurrent chats", false, true),
             ]
         case .pro:
             return [
                 ("Free AI models", true, true),
-                ("Access to top AI models", false, true),
-                ("Advanced reasoning", false, true),
+                ("Reasoning models", false, true),
+                ("200+ messages/day", false, true),
+                ("15 images + 1 video/mo", false, true),
                 ("Image understanding", false, true),
-                ("Higher daily usage", false, true),
-                ("3 concurrent chats", false, true),
             ]
         case .power:
             return [
                 ("Free AI models", true, true),
-                ("All AI models unlocked", false, true),
+                ("All models unlocked", false, true),
+                ("500+ messages/day", false, true),
+                ("60 images + 3 videos/mo", false, true),
                 ("Premium reasoning (O1, O3)", false, true),
-                ("Maximum daily usage", false, true),
-                ("4 concurrent chats", false, true),
                 ("Priority access", false, true),
             ]
         case .free:
             return [
                 ("8 free AI models", true, true),
-                ("Basic daily usage", true, true),
+                ("30 messages/day", true, true),
                 ("1 concurrent chat", true, true),
             ]
         }

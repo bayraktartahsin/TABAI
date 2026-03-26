@@ -14,5 +14,5 @@ object LegalLinks {
     const val ACCEPTABLE_USE = "${AppConfig.BASE_URL}/tabai/acceptable-use"
     const val SUBSCRIPTION = "${AppConfig.BASE_URL}/tabai/subscription"
     const val SUPPORT = "${AppConfig.BASE_URL}/tabai/support"
-    const val SUPPORT_EMAIL = "support@tahsinbayraktar.com"
+    const val SUPPORT_EMAIL = "tabai@gravitilabs.com"
 }

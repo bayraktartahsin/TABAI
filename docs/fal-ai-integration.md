@@ -27,8 +27,8 @@ For testing and first 100 users, $50 covers months of usage. Scale up when you h
 
 ### Step 3: Add API Key to Cloudflare
 ```bash
-cd tai-edge
-npx wrangler secret put FAL_AI_API_KEY
+cd backend
+# Add FAL_AI_API_KEY to .env file
 # Paste your fal.ai key when prompted
 ```
 
@@ -40,13 +40,13 @@ npx wrangler secret put FAL_AI_API_KEY
 
 ### Current Flow (Text Chat)
 ```
-iOS/Android → /api/chat/stream → tai-edge Worker → OpenRouter → SSE stream back
+iOS/Android → /api/chat/stream → backend → OpenRouter → SSE stream back
 ```
 
 ### New Flow (Image/Video Generation)
 ```
-iOS/Android → /api/generate/image → tai-edge Worker → fal.ai queue → poll → result URL
-iOS/Android → /api/generate/video → tai-edge Worker → fal.ai queue → poll → result URL
+iOS/Android → /api/generate/image → backend → fal.ai queue → poll → result URL
+iOS/Android → /api/generate/video → backend → fal.ai queue → poll → result URL
 ```
 
 ### Why Queue-Based (Not Streaming)
@@ -156,11 +156,11 @@ Run these in order. Each is one terminal session.
 ### Prompt 1: Database Migration + Backend Endpoints
 
 ```
-M-FAL-1 — Add fal.ai integration to tai-edge backend.
+M-FAL-1 — Add fal.ai integration to backend backend.
 
-Read TAI_MASTER_SCOPE.md and FAL_AI_INTEGRATION_PLAN.md first.
+Read docs/milestones.md and docs/fal-ai-integration.md first.
 
-STEP 1: Create D1 migration (next number after existing migrations in tai-edge/migrations/):
+STEP 1: Create D1 migration (next number after existing migrations in backend/migrations/):
 CREATE TABLE generations (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -188,7 +188,7 @@ CREATE INDEX idx_generations_user ON generations(user_id, created_at);
 CREATE INDEX idx_generations_status ON generations(status);
 CREATE INDEX idx_generations_fal ON generations(fal_request_id);
 
-STEP 2: Add to tai-edge/src/lib.ts:
+STEP 2: Add to backend/src/lib.ts:
 - submitFalGeneration(env, userId, chatId, model, prompt, params) — POST to queue.fal.run
 - checkFalStatus(env, falRequestId, modelId) — GET status from fal.ai
 - getFalResult(env, falRequestId, modelId) — GET completed result
@@ -201,7 +201,7 @@ fal.ai API pattern:
 - Status: GET https://queue.fal.run/{model-id}/requests/{request_id}/status
 - Result: GET https://queue.fal.run/{model-id}/requests/{request_id}
 
-STEP 3: Add endpoints to tai-edge/src/endpoints/tai.ts:
+STEP 3: Add endpoints to backend/src/endpoints/tai.ts:
 - POST /api/generate/image — submit image generation
 - POST /api/generate/video — submit video generation
 - GET /api/generate/status/:id — poll generation status
@@ -223,7 +223,7 @@ Do NOT touch iOS files. Backend only. Test by running npx wrangler dev and check
 ```
 M-FAL-2 — Add image generation UI to iOS app.
 
-Read TAI_MASTER_SCOPE.md and FAL_AI_INTEGRATION_PLAN.md first.
+Read docs/milestones.md and docs/fal-ai-integration.md first.
 
 IMPORTANT: The iOS project is at ios/TABAI/TABAI/. Follow existing code patterns exactly.
 
@@ -295,9 +295,9 @@ Use existing DS.swift design tokens. Match the Perplexity-clean aesthetic. No gl
 ```
 M-FAL-3 — Implement TABAI composite model with smart routing.
 
-Read TAI_MASTER_SCOPE.md and FAL_AI_INTEGRATION_PLAN.md first.
+Read docs/milestones.md and docs/fal-ai-integration.md first.
 
-STEP 1: In tai-edge/src/lib.ts, add routeTabaiModel function:
+STEP 1: In backend/src/lib.ts, add routeTabaiModel function:
 
 function routeTabaiModel(messages: Message[]): string {
   // Extract last user message text
@@ -338,7 +338,7 @@ STEP 5: In ChatBubbleView.swift (or AnswerCardView if renamed):
 ```
 M6-FAL — Add fal.ai image and video generation to Android app.
 
-Read TAI_MASTER_SCOPE.md and FAL_AI_INTEGRATION_PLAN.md first.
+Read docs/milestones.md and docs/fal-ai-integration.md first.
 
 This is for the Android (Kotlin + Jetpack Compose) app. The backend endpoints already exist from M-FAL-1.
 Replicate the exact same UX as iOS (M-FAL-2) but in Compose.
@@ -369,7 +369,7 @@ Use Material 3 Design tokens matching the iOS DS.swift values.
 
 ## 7. Updated Milestone Map
 
-Add these to TAI_MASTER_SCOPE.md:
+Add these to docs/milestones.md:
 
 ```
 ### M-FAL — fal.ai Image & Video Integration
@@ -433,6 +433,6 @@ Add these to TAI_MASTER_SCOPE.md:
 | Scale (50,000 users) | Review unit economics | Should be profitable from subscriptions |
 
 Your subscription pricing covers fal.ai costs with healthy margins:
-- Starter ($4.99/mo): 20 images/day = ~$1.80/mo cost → $3.19 margin
-- Pro ($14.99/mo): 50 images + 5 videos/day = ~$170/mo cost at MAX usage (most users use 10-20%) → realistic ~$25-35/mo → needs monitoring
-- Power ($29.99/mo): Heavy users — monitor closely, adjust limits if needed
+- Starter ($6.99/mo): 20 images/day = ~$1.80/mo cost → $5.19 margin
+- Pro ($29.99/mo): 50 images + 5 videos/day = ~$170/mo cost at MAX usage (most users use 10-20%) → needs monitoring
+- Power ($79.99/mo): Heavy users — healthy margins, adjust limits if needed

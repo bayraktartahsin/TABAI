@@ -41,6 +41,22 @@ object AppModule {
     fun provideOkHttpClient(cookieJar: PersistentCookieJarImpl): OkHttpClient =
         OkHttpClient.Builder()
             .cookieJar(cookieJar)
+            .addInterceptor { chain ->
+                val request = chain.request()
+                val method = request.method.uppercase()
+                if (method != "GET" && method != "HEAD" && method != "OPTIONS") {
+                    val csrfToken = cookieJar.loadForRequest(request.url)
+                        .firstOrNull { it.name == "tai_csrf" }?.value
+                    if (csrfToken != null) {
+                        return@addInterceptor chain.proceed(
+                            request.newBuilder()
+                                .addHeader("X-CSRF-Token", csrfToken)
+                                .build()
+                        )
+                    }
+                }
+                chain.proceed(request)
+            }
             .connectTimeout(AppConfig.CONNECT_TIMEOUT_SEC, TimeUnit.SECONDS)
             .readTimeout(AppConfig.READ_TIMEOUT_SEC, TimeUnit.SECONDS)
             .writeTimeout(AppConfig.WRITE_TIMEOUT_SEC, TimeUnit.SECONDS)

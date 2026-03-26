@@ -189,13 +189,17 @@ struct TABAIChatService: ChatServiceProtocol {
         throw Error.invalidResponse
     }
 
-    func streamChat(chatId: String, model: String, messages: [ChatMessageSummary], onToken: @escaping (String) -> Void, onMetadata: ((String) -> Void)? = nil) async throws -> String? {
+    func streamChat(chatId: String, model: String, messages: [ChatMessageSummary], attachments: [[String: Any]]? = nil, onToken: @escaping (String) -> Void, onMetadata: ((String) -> Void)? = nil) async throws -> String? {
         let url = client.baseURL.appendingPathComponent("api/chat/stream")
-        let payload = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "chatId": chatId,
             "model": model,
             "messages": messages.map { ["role": $0.role, "content": $0.text] }
-        ])
+        ]
+        if let attachments, !attachments.isEmpty {
+            body["attachments"] = attachments
+        }
+        let payload = try JSONSerialization.data(withJSONObject: body)
 
         var streamError: Swift.Error?
         var capturedMessageId: String?

@@ -1,0 +1,214 @@
+html[data-theme="dark"] { color-scheme: dark; }
+html[data-theme="light"] { color-scheme: light; }
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--ds-font-ui);
+  background: var(--ds-bg-base);
+  color: var(--ds-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+* { box-sizing: border-box; }
+a { color: inherit; text-decoration: none; }
+
+/* ── Shell ── */
+.ds-shell { height: 100dvh; display: flex; overflow: hidden; position: relative; }
+
+.ds-sidebar {
+  width: 280px; height: 100dvh;
+  border-right: 1px solid var(--ds-border);
+  background: var(--ds-bg-base);
+  transform: translateX(-100%);
+  transition: transform var(--ds-motion-base) var(--ds-ease);
+  position: fixed; left: 0; top: 0; z-index: 30;
+}
+.ds-sidebar.ds-sidebar-open { transform: translateX(0); }
+.tai-sidebar { height: 100%; display: flex; flex-direction: column; }
+.tai-mobile-only { display: inline-grid; }
+
+.tai-sidebar-backdrop {
+  position: fixed; inset: 0;
+  background: var(--ds-bg-overlay);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--ds-motion-base) var(--ds-ease);
+  z-index: 20;
+}
+.tai-sidebar-backdrop--show { opacity: 1; pointer-events: auto; }
+
+@media (min-width: 901px) {
+  .ds-sidebar { position: relative; transform: translateX(0); z-index: 1; }
+  .tai-sidebar-backdrop { display: none; }
+  .tai-mobile-only { display: none; }
+}
+
+.ds-main { width: 100%; height: 100dvh; overflow: auto; }
+
+/* ── Cards & Buttons ── */
+.ds-card {
+  background: var(--ds-bg-elev);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-lg);
+  box-shadow: var(--ds-shadow-sm);
+}
+
+.ds-btn {
+  border: 1px solid var(--ds-border);
+  background: rgba(255,255,255,0.04);
+  color: var(--ds-text);
+  border-radius: var(--ds-radius-md);
+  padding: 10px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform var(--ds-motion-fast) var(--ds-ease),
+    background var(--ds-motion-fast) var(--ds-ease),
+    border-color var(--ds-motion-fast) var(--ds-ease);
+}
+.ds-btn:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.16); }
+.ds-btn:active { transform: scale(0.98); }
+
+.tai-pill-button { border-radius: 999px; padding: 8px 12px; }
+.tai-chip-button {
+  border-radius: 12px; padding: 10px 14px; font-size: 13px;
+  background: rgba(255,255,255,0.04); text-align: left;
+  border: 1px solid rgba(255,255,255,0.08);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.tai-chip-button:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.14); }
+.tai-menu-button { background: transparent; border-color: transparent; }
+.tai-menu-button:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); }
+.tai-muted-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--ds-text-3);
+  border: 1px solid var(--ds-border); border-radius: 999px;
+  padding: 6px 10px; background: rgba(255,255,255,0.03);
+}
+
+/* ── Sidebar rows ── */
+.tai-sidebar-row, .tai-sidebar-dropzone {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  will-change: transform;
+}
+.tai-sidebar-row:hover, .tai-sidebar-dropzone:hover {
+  transform: translateY(-1px); box-shadow: 0 10px 24px rgba(0,0,0,0.14);
+}
+html[data-theme="light"] .tai-sidebar-row:hover,
+html[data-theme="light"] .tai-sidebar-dropzone:hover { box-shadow: 0 8px 20px rgba(15,23,42,0.08); }
+
+/* ── Inputs ── */
+.ds-input {
+  width: 100%; border: 1px solid var(--ds-border);
+  background: rgba(255,255,255,0.03); color: var(--ds-text);
+  border-radius: var(--ds-radius-md); padding: 12px; outline: none;
+  font-size: 15px;
+}
+.ds-input::placeholder { color: var(--ds-text-3); }
+.ds-input:focus { border-color: rgba(255,255,255,0.18); }
+
+/* ── Icon slots ── */
+.ds-iconSlot {
+  --_bg: var(--ds-icon-slot-bg); --_bgHover: var(--ds-icon-slot-bg-hover);
+  --_bgActive: var(--ds-icon-slot-bg-active); --_border: var(--ds-icon-slot-border);
+  --_shadow: var(--ds-icon-slot-shadow);
+  width: 36px; height: 36px; padding: 0; display: inline-grid; place-items: center;
+  border-radius: 12px; border: 1px solid var(--_border);
+  background: var(--_bg); box-shadow: var(--_shadow);
+  color: var(--ds-iconSlot-color); cursor: pointer;
+  transition: background var(--ds-motion-base) var(--ds-ease), transform var(--ds-motion-fast) var(--ds-ease);
+}
+.ds-iconSlot__inner { width: 100%; height: 100%; display: grid; place-items: center; }
+.ds-iconSlot:hover { background: var(--_bgHover); border-color: rgba(255,255,255,0.18); color: var(--ds-iconSlot-color-hover); }
+html[data-theme="light"] .ds-iconSlot:hover { border-color: rgba(17,24,39,0.18); }
+.ds-iconSlot:active { background: var(--_bgActive); transform: scale(0.96); color: var(--ds-iconSlot-color-active); }
+.ds-iconSlot:focus-visible { outline: 2px solid var(--ds-accent-soft); outline-offset: 2px; }
+.ds-iconSlot--compact { width: 30px; height: 30px; border-radius: 11px; }
+.ds-iconSlot--large { width: 38px; height: 38px; border-radius: 13px; }
+.ds-iconSlot--round { border-radius: 999px; }
+
+/* ── Code blocks ── */
+pre {
+  margin: 10px 0; padding: 14px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--ds-border);
+  border-radius: 14px; overflow: auto;
+}
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+}
+
+/* ── Chat header — Perplexity style ── */
+.tai-chat-header {
+  position: sticky; top: 0; z-index: 12;
+  display: grid; grid-template-columns: auto 1fr auto;
+  align-items: center; gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ds-border);
+  background: var(--ds-surface-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.tai-chat-header > :last-child { justify-self: end; }
+
+/* ── Message pane ── */
+.tai-msg-pane { flex: 1; overflow: auto; }
+
+/* Messages are rendered with inline styles from ChatScreen.tsx */
+
+/* ── Composer — pill-shaped, iOS style ── */
+.tai-composer-wrap {
+  position: sticky; bottom: 0;
+  background: linear-gradient(to top, var(--ds-bg-base) 80%, transparent);
+  padding: 0 0 8px 0;
+}
+
+.tai-composer-wrap .ds-card {
+  border-radius: 24px;
+  padding: 8px 12px;
+  background: var(--ds-bg-elev);
+  border-color: rgba(255,255,255,0.1);
+}
+
+.tai-composer-wrap .ds-input {
+  border: none; background: transparent;
+  padding: 10px 4px; font-size: 15px;
+  min-height: 44px; max-height: 220px;
+  resize: none; line-height: 1.45;
+}
+.tai-composer-wrap .ds-input:focus { border: none; box-shadow: none; }
+
+/* ── Streaming cursor ── */
+.tai-cursor {
+  display: inline-block; width: 8px; height: 16px;
+  margin-left: 4px; border-radius: 2px;
+  background: var(--ds-icon-color-active, #59CCB3);
+  transform: translateY(3px);
+  animation: taiPulse 800ms var(--ds-ease) infinite;
+}
+
+@keyframes taiPulse {
+  0%, 40% { opacity: 0.25; }
+  50%, 80% { opacity: 0.65; }
+  100% { opacity: 0.25; }
+}
+
+@keyframes taiMsgIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .ds-sidebar, .tai-sidebar-backdrop, .ds-btn, .ds-iconSlot, .tai-msg-wrap, .tai-cursor {
+    transition: none !important; animation: none !important;
+  }
+}
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  .tai-msg-actions { opacity: 1; }
+  .tai-chat-header { padding: 10px 12px; }
+  .tai-msg { padding: 12px 14px; }
+  .tai-msg-user { max-width: 85%; }
+}

@@ -178,20 +178,20 @@ final class AppEnvironment: ObservableObject {
 
         let token = try await authService.signIn(email: email, password: password)
         if AppConfig.enableNetworkDebugLogs {
-            print("TAI signin success for \(email)")
+            TABLogger.debug("TAI signin success for \(email)")
         }
 
         setSession(token: token, email: email)
 
         if AppConfig.enableNetworkDebugLogs {
             let cookieNames = HTTPCookieStorage.shared.cookies(for: AppEnvironment.tabaiConfiguration().baseURL)?.map(\.name) ?? []
-            print("TAI cookie persistence: \(cookieNames)")
+            TABLogger.debug("TAI cookie persistence: \(cookieNames)")
         }
 
         do {
             let isValid = await authService.validateToken(token)
             if AppConfig.enableNetworkDebugLogs {
-                print("TAI auth/me success: \(isValid)")
+                TABLogger.debug("TAI auth/me success: \(isValid)")
             }
             guard isValid else {
                 signOut()
@@ -201,7 +201,7 @@ final class AppEnvironment: ObservableObject {
             applyBootstrap(bootstrap)
         } catch {
             if AppConfig.enableNetworkDebugLogs {
-                print("TAI bootstrap failed after signin")
+                TABLogger.debug("TAI bootstrap failed after signin")
             }
             signOut()
             throw TABAIError.invalidResponse
@@ -275,20 +275,34 @@ final class AppEnvironment: ObservableObject {
         isAuthenticating = true
         defer { isAuthenticating = false }
 
-        // Send the Apple identity token to backend for verification
-        let url = tabaiClient.baseURL.appendingPathComponent("api/auth/apple")
-        var body: [String: Any] = ["identityToken": identityToken]
-        if let email { body["email"] = email }
+        // Apple only provides name/email on FIRST sign-in — persist locally
         if let fullName {
             var name = ""
             if let given = fullName.givenName { name += given }
             if let family = fullName.familyName { name += (name.isEmpty ? "" : " ") + family }
-            if !name.isEmpty { body["displayName"] = name }
+            if !name.isEmpty {
+                UserDefaults.standard.set(name, forKey: "tai.apple.displayName")
+            }
+        }
+
+        // Send the Apple identity token to backend for verification
+        let url = tabaiClient.baseURL.appendingPathComponent("api/auth/apple")
+        var body: [String: Any] = ["identityToken": identityToken]
+        if let email { body["email"] = email }
+        // Use stored name if Apple didn't provide one this time (subsequent sign-ins)
+        let storedName = UserDefaults.standard.string(forKey: "tai.apple.displayName")
+        if let name = storedName, !name.isEmpty {
+            body["displayName"] = name
         }
         let jsonData = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await tabaiClient.requestRaw(method: "POST", url: url, body: jsonData)
 
         guard response.statusCode == 200 else {
+            // Surface backend error message if available
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let errorMsg = json["error"] as? String {
+                throw TABAIError.serverError(errorMsg)
+            }
             throw TABAIError.invalidResponse
         }
 
@@ -362,7 +376,7 @@ final class AppEnvironment: ObservableObject {
             PersistenceController.shared.upsertThreads(remote)
         } catch {
             if AppConfig.enableNetworkDebugLogs {
-                print("TAI refresh failed; using cached data")
+                TABLogger.debug("TAI refresh failed; using cached data")
             }
         }
     }
@@ -382,7 +396,7 @@ final class AppEnvironment: ObservableObject {
             networkHealth.lastModelsFetchOK = true
         } catch {
             if AppConfig.enableNetworkDebugLogs {
-                print("TAI models fetch failed: \(error)")
+                TABLogger.debug("TAI models fetch failed: \(error)")
             }
             networkHealth.lastModelsFetchOK = false
             networkHealth.lastError = "Models fetch failed: \(error)"
@@ -396,7 +410,7 @@ final class AppEnvironment: ObservableObject {
             applyBootstrap(bootstrap)
         } catch {
             if AppConfig.enableNetworkDebugLogs {
-                print("TAI bootstrap refresh failed: \(error)")
+                TABLogger.debug("TAI bootstrap refresh failed: \(error)")
             }
         }
     }
@@ -411,8 +425,8 @@ final class AppEnvironment: ObservableObject {
     private func performDiscovery() async {
         let baseURL = AppEnvironment.tabaiConfiguration().baseURL
         if AppConfig.enableNetworkDebugLogs {
-            print("TAI base URL: \(baseURL.absoluteString)")
-            print("TAI auth mode: \(AppConfig.authMode.rawValue)")
+            TABLogger.debug("TAI base URL: \(baseURL.absoluteString)")
+            TABLogger.debug("TAI auth mode: \(AppConfig.authMode.rawValue)")
         }
         networkHealth.discoveryOK = true
         networkHealth.openAPIURL = nil
@@ -433,7 +447,7 @@ final class AppEnvironment: ObservableObject {
         // Step 1: Validate token — only sign out on explicit invalidity (401)
         let isValid = await authService.validateToken(session?.token ?? "")
         if AppConfig.enableNetworkDebugLogs {
-            print("TAI auth/me success for restored session: \(isValid)")
+            TABLogger.debug("TAI auth/me success for restored session: \(isValid)")
         }
         guard isValid else {
             // Token is explicitly invalid (server said 401) — sign out
@@ -447,7 +461,7 @@ final class AppEnvironment: ObservableObject {
             do {
                 let bootstrap = try await tabaiBootstrapService.fetchBootstrap()
                 if AppConfig.enableNetworkDebugLogs {
-                    print("TAI bootstrap success for restored session (attempt \(attempt))")
+                    TABLogger.debug("TAI bootstrap success for restored session (attempt \(attempt))")
                 }
                 applyBootstrap(bootstrap)
                 sessionValidationFailed = false
@@ -455,7 +469,7 @@ final class AppEnvironment: ObservableObject {
             } catch {
                 lastError = error
                 if AppConfig.enableNetworkDebugLogs {
-                    print("TAI bootstrap attempt \(attempt)/3 failed: \(error)")
+                    TABLogger.debug("TAI bootstrap attempt \(attempt)/3 failed: \(error)")
                 }
                 if attempt < 3 {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -465,7 +479,7 @@ final class AppEnvironment: ObservableObject {
 
         // All retries exhausted — show retry banner, do NOT sign out
         if AppConfig.enableNetworkDebugLogs {
-            print("TAI bootstrap failed after 3 attempts: \(String(describing: lastError))")
+            TABLogger.debug("TAI bootstrap failed after 3 attempts: \(String(describing: lastError))")
         }
         sessionValidationFailed = true
     }
@@ -531,7 +545,7 @@ final class AppEnvironment: ObservableObject {
             return []
         }
         if AppConfig.enableNetworkDebugLogs {
-            print("TAI loaded \(models.count) cached models from UserDefaults")
+            TABLogger.debug("TAI loaded \(models.count) cached models from UserDefaults")
         }
         return models
     }

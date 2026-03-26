@@ -28,6 +28,11 @@ final class TABAIClient {
             sessionConfiguration.httpShouldSetCookies = configuration.cookieAuthEnabled
             sessionConfiguration.httpCookieAcceptPolicy = .always
             sessionConfiguration.httpCookieStorage = .shared
+            // TODO: Certificate pinning — Cloudflare rotates certificates frequently,
+            // so full public-key pinning requires maintaining pin hashes.
+            // For now, ATS (App Transport Security) enforces TLS validation.
+            // When stable origin certificates are available, create a URLSessionDelegate
+            // that validates public key hashes against known pins.
             self.session = URLSession(configuration: sessionConfiguration)
         }
     }
@@ -40,7 +45,7 @@ final class TABAIClient {
     func requestRaw(method: String, url: URL, body: Data? = nil) async throws -> (Data, HTTPURLResponse) {
         if requiresAuthenticatedSession(url: url) && hasSessionCredential() == false {
             if AppConfig.enableNetworkDebugLogs {
-                print("TAI blocked unauthenticated request: \(method) \(url.absoluteString)")
+                TABLogger.debug("TAI blocked unauthenticated request: \(method) \(url.absoluteString)")
             }
             throw TABAIError.unauthenticated
         }
@@ -53,9 +58,12 @@ final class TABAIClient {
         if let authorization = authorizationHeaderValue() {
             request.setValue(authorization, forHTTPHeaderField: "Authorization")
         }
+        if method != "GET", let csrf = csrfToken() {
+            request.setValue(csrf, forHTTPHeaderField: "X-CSRF-Token")
+        }
 
         if AppConfig.enableNetworkDebugLogs {
-            print("TAI request: \(method) \(url.absoluteString)")
+            TABLogger.debug("TAI request: \(method) \(url.absoluteString)")
         }
 
         do {
@@ -65,7 +73,7 @@ final class TABAIClient {
             }
             if AppConfig.enableNetworkDebugLogs {
                 let snippet = String(data: data.prefix(300), encoding: .utf8) ?? "<binary>"
-                print("TAI response: \(httpResponse.statusCode) \(snippet)")
+                TABLogger.debug("TAI response: \(httpResponse.statusCode) \(snippet)")
             }
             return (data, httpResponse)
         } catch let error as URLError {
@@ -83,7 +91,7 @@ final class TABAIClient {
     func streamSSE(url: URL, body: Data?, onEvent: @escaping (String, Data) -> Void) async throws {
         if requiresAuthenticatedSession(url: url) && hasSessionCredential() == false {
             if AppConfig.enableNetworkDebugLogs {
-                print("TAI blocked unauthenticated stream: \(url.absoluteString)")
+                TABLogger.debug("TAI blocked unauthenticated stream: \(url.absoluteString)")
             }
             throw TABAIError.unauthenticated
         }
@@ -99,11 +107,33 @@ final class TABAIClient {
         if let authorization = authorizationHeaderValue() {
             request.setValue(authorization, forHTTPHeaderField: "Authorization")
         }
+        if let csrf = csrfToken() {
+            request.setValue(csrf, forHTTPHeaderField: "X-CSRF-Token")
+        }
 
         do {
             let (bytes, response) = try await session.bytes(for: request)
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            guard let httpResponse = response as? HTTPURLResponse else {
                 throw TABAIError.invalidResponse
+            }
+            // Handle non-200 responses — especially 429 rate limits
+            if httpResponse.statusCode != 200 {
+                // Collect error body from bytes stream
+                var bodyParts: [UInt8] = []
+                for try await byte in bytes { bodyParts.append(byte); if bodyParts.count > 4096 { break } }
+                let bodyData = Data(bodyParts)
+                if httpResponse.statusCode == 429 || httpResponse.statusCode == 403 {
+                    // Parse JSON error: { "error": { "code": "...", "message": "..." } } or { "message": "...", "code": "..." }
+                    if let json = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any] {
+                        let errObj = (json["error"] as? [String: Any]) ?? json
+                        let code = (errObj["code"] as? String) ?? "RATE_LIMITED"
+                        let message = (errObj["message"] as? String) ?? "Rate limit reached. Please try again later."
+                        throw TABAIError.rateLimited(code: code, message: message)
+                    }
+                }
+                if httpResponse.statusCode == 401 { throw TABAIError.unauthenticated }
+                let errorText = String(data: bodyData, encoding: .utf8) ?? "Unknown error"
+                throw TABAIError.serverError("Server error \(httpResponse.statusCode): \(errorText.prefix(200))")
             }
 
             var eventName: String?
@@ -144,6 +174,11 @@ final class TABAIClient {
                 throw error
             }
         }
+    }
+
+    private func csrfToken() -> String? {
+        let cookies = HTTPCookieStorage.shared.cookies(for: baseURL) ?? []
+        return cookies.first(where: { $0.name == "tai_csrf" })?.value
     }
 
     private func authorizationHeaderValue() -> String? {

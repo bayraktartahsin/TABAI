@@ -18,6 +18,7 @@ struct ImageGeneratorView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    quotaBadge
                     promptSection
                     styleSelector
                     sizeSelector
@@ -45,8 +46,102 @@ struct ImageGeneratorView: View {
                         .foregroundStyle(DS.Colors.textSecondary)
                 }
             }
-            .onAppear { viewModel.loadHistory() }
+            .onAppear {
+                viewModel.loadHistory()
+                viewModel.loadQuota()
+            }
         }
+    }
+
+    // MARK: - Quota Badge
+
+    private var quotaBadge: some View {
+        Group {
+            if let q = viewModel.quota {
+                if !q.generationEnabled {
+                    upgradeRequiredBanner
+                } else {
+                    HStack(spacing: 16) {
+                        quotaStat(icon: "photo", used: q.images.usedThisMonth, limit: q.images.limitPerMonth, label: "images")
+                        Divider().frame(height: 16)
+                        quotaStat(icon: "gauge", used: q.monthlyUnits.used, limit: q.monthlyUnits.limit, label: "budget",
+                                  percentUsed: q.monthlyUnits.percentUsed)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(DS.Colors.fieldBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(DS.Colors.glassStroke, lineWidth: 0.5)
+                    )
+                }
+            }
+        }
+    }
+
+    private func quotaStat(icon: String, used: Int, limit: Int, label: String, percentUsed: Double? = nil) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundStyle(usageColor(used: used, limit: limit))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(used)/\(limit)")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(DS.Colors.textPrimary)
+                Text(label)
+                    .font(.system(size: 10))
+                    .foregroundStyle(DS.Colors.textSecondary)
+            }
+        }
+    }
+
+    private func usageColor(used: Int, limit: Int) -> Color {
+        guard limit > 0 else { return .red }
+        let ratio = Double(used) / Double(limit)
+        if ratio >= 0.9 { return .red }
+        if ratio >= 0.7 { return .orange }
+        return DS.Colors.accent
+    }
+
+    private var upgradeRequiredBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Pro plan required")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(DS.Colors.textPrimary)
+                Text("Image generation is available on Pro and Power plans")
+                    .font(.system(size: 12))
+                    .foregroundStyle(DS.Colors.textSecondary)
+            }
+            Spacer()
+            Button {
+                appEnvironment.selectedTab = .subscriptions
+                dismiss()
+            } label: {
+                Text("Upgrade")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(
+                        LinearGradient(colors: [.orange, .pink], startPoint: .leading, endPoint: .trailing)
+                    )
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.orange.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.orange.opacity(0.2), lineWidth: 0.5)
+                )
+        )
     }
 
     // MARK: - Prompt
@@ -208,22 +303,56 @@ struct ImageGeneratorView: View {
                 }
 
             case .failed(let message):
-                VStack(spacing: 8) {
-                    Text(message)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
+                VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: message.contains("limit") || message.contains("budget") || message.contains("Upgrade") ? "exclamationmark.triangle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(message.contains("limit") || message.contains("budget") || message.contains("Upgrade") ? .orange : .red)
+                            .font(.system(size: 16))
+                        Text(message)
+                            .font(.system(size: 13))
+                            .foregroundStyle(DS.Colors.textPrimary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(message.contains("Upgrade") ? Color.orange.opacity(0.08) : Color.red.opacity(0.08))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(message.contains("Upgrade") ? Color.orange.opacity(0.2) : Color.red.opacity(0.2), lineWidth: 0.5)
+                            )
+                    )
+
+                    if message.contains("Upgrade") || message.contains("limit") || message.contains("budget") || message.contains("plan") {
+                        Button {
+                            appEnvironment.selectedTab = .subscriptions
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .font(.system(size: 14))
+                                Text("Upgrade Plan")
+                                    .font(.system(size: 15, weight: .semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(
+                                LinearGradient(colors: [.orange, .pink], startPoint: .leading, endPoint: .trailing)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: DS.Layout.fieldCornerRadius, style: .continuous))
+                        }
+                    }
 
                     Button {
                         viewModel.reset()
                     } label: {
-                        Text("Try Again")
-                            .font(DS.Typography.button)
-                            .foregroundStyle(.white)
+                        Text(message.contains("Upgrade") ? "Maybe Later" : "Try Again")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(DS.Colors.textSecondary)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(DS.Colors.accent)
-                            .clipShape(RoundedRectangle(cornerRadius: DS.Layout.fieldCornerRadius, style: .continuous))
+                            .frame(height: 40)
                     }
                 }
             }

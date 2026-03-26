@@ -23,6 +23,7 @@ final class VideoGeneratorViewModel: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var progressText: String = ""
     @Published private(set) var queuePosition: Int?
+    @Published private(set) var quota: GenerationQuotaSnapshot?
 
     private let service: FalAIServiceProtocol
     private var pollingTask: Task<Void, Never>?
@@ -37,8 +38,37 @@ final class VideoGeneratorViewModel: ObservableObject {
         return hasPrompt && hasPhoto && state == .idle
     }
 
+    func loadQuota() {
+        Task {
+            do {
+                quota = try await service.fetchQuota()
+            } catch {
+                // Non-critical
+            }
+        }
+    }
+
     func generate() {
         guard canGenerate else { return }
+
+        // Client-side quota pre-check
+        if let q = quota {
+            if !q.generationEnabled || q.videos.limitPerMonth == 0 {
+                state = .failed(message: "Video generation requires Pro or Power plan.")
+                return
+            }
+            if !q.canGenerateVideo {
+                if q.videos.limitPerDay > 0, q.videos.remainingToday == 0 {
+                    state = .failed(message: "Daily video limit reached (\(q.videos.limitPerDay)/day). Try again tomorrow or upgrade.")
+                } else if q.videos.limitPerMonth > 0, q.videos.remainingThisMonth == 0 {
+                    state = .failed(message: "Monthly video limit reached (\(q.videos.limitPerMonth)/month). Upgrade for more.")
+                } else {
+                    state = .failed(message: "Monthly generation budget exhausted. Upgrade for more.")
+                }
+                return
+            }
+        }
+
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
 
         state = .submitting

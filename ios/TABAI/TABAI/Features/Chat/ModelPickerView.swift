@@ -267,20 +267,26 @@ private struct ModelPickerSheet: View {
             }
 
             VStack(spacing: 2) {
-                createRow(
-                    icon: "photo.badge.plus",
-                    title: "Generate Image",
-                    subtitle: "Create images with AI",
-                    isLocked: planOrder(currentPlanTier) < planOrder(.starter),
-                    action: { onGenerateImage?() }
-                )
-                createRow(
-                    icon: "film.stack",
-                    title: "Generate Video",
-                    subtitle: "Create videos with AI",
-                    isLocked: planOrder(currentPlanTier) < planOrder(.starter),
-                    action: { onGenerateVideo?() }
-                )
+                ForEach(FalModel.imageModels) { model in
+                    let isLocked = planOrder(currentPlanTier) < planOrder(model.minTier)
+                    createRow(
+                        icon: "sparkles",
+                        title: model.displayName,
+                        subtitle: imageSubtitle(for: model),
+                        isLocked: isLocked,
+                        action: { onSelect(model.id) }
+                    )
+                }
+                ForEach(FalModel.videoModels) { model in
+                    let isLocked = planOrder(currentPlanTier) < planOrder(model.minTier)
+                    createRow(
+                        icon: "film",
+                        title: model.displayName,
+                        subtitle: videoSubtitle(for: model),
+                        isLocked: isLocked,
+                        action: { onSelect(model.id) }
+                    )
+                }
             }
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
@@ -415,6 +421,26 @@ private struct ModelPickerSheet: View {
             .background(isSelected ? selectedBackground : rowBackground)
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Generation Subtitles
+
+    private func imageSubtitle(for model: FalModel) -> String {
+        switch model.id {
+        case "fal-ai/flux/schnell": return "Fast image generation"
+        case "fal-ai/flux/dev": return "High quality images"
+        case "fal-ai/flux-2-pro": return "Professional quality"
+        case "fal-ai/flux-2-pro-ultra": return "Maximum quality and detail"
+        default: return "Image generation"
+        }
+    }
+
+    private func videoSubtitle(for model: FalModel) -> String {
+        switch model.id {
+        case "fal-ai/kling-video/v1.5/pro/text-to-video": return "Text to video creation"
+        case "fal-ai/veo3": return "Premium video quality"
+        default: return "Video generation"
+        }
     }
 
     // MARK: - Data

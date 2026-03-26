@@ -1,6 +1,8 @@
 import Foundation
 import Combine
 import SwiftUI
+import UIKit
+import PDFKit
 
 @MainActor
 final class ChatViewModel: ObservableObject {
@@ -24,6 +26,13 @@ final class ChatViewModel: ObservableObject {
         var isFailed: Bool
         var remoteId: String?  // Track server ID for persistent sync
         var poweredBy: String? // TABAI composite model: actual model used
+        // Generation fields
+        var isGenerating: Bool = false
+        var generationType: GenerationType? = nil
+        var generationProgress: String? = nil
+        var generationResultUrl: String? = nil
+        var generationId: String? = nil
+        var attachments: [Attachment] = []
     }
 
     enum AttachmentKind: String {
@@ -47,12 +56,32 @@ final class ChatViewModel: ObservableObject {
         let id: UUID
         let kind: AttachmentKind
         let name: String
+        let imageData: Data?
+        let textContent: String?
+        let mimeType: String
+        let fileSize: Int
+
+        var thumbnail: UIImage? {
+            guard let imageData else { return nil }
+            return UIImage(data: imageData)
+        }
+
+        var dataURL: String? {
+            guard let imageData else { return nil }
+            return "data:\(mimeType);base64,\(imageData.base64EncodedString())"
+        }
+
+        static func == (lhs: Attachment, rhs: Attachment) -> Bool {
+            lhs.id == rhs.id
+        }
     }
 
     // Attachment validation constants (must match backend and web limits)
     private static let MAX_ATTACHMENTS = 6
-    private static let SUPPORTED_TYPES: Set<AttachmentKind> = [.photo]
-    
+    private static let MAX_IMAGE_SIZE = 8 * 1024 * 1024
+    private static let MAX_TEXT_FILE_SIZE = 1 * 1024 * 1024
+    private static let SUPPORTED_TYPES: Set<AttachmentKind> = [.photo, .camera, .file]
+
     struct AttachmentValidationError: Error {
         let message: String
     }
@@ -65,6 +94,11 @@ final class ChatViewModel: ObservableObject {
     @Published var pendingAttachments: [Attachment] = []
     @Published private(set) var isLoadingChat: Bool = false
     @Published private(set) var latestError: String?
+    @Published var showVisionRequired: Bool = false
+    @Published var showLimitReached: Bool = false
+    @Published var limitReachedType: LimitReachedType?
+    /// Text preserved when send is blocked by vision check, so it can be re-sent.
+    private(set) var visionBlockedText: String?
 
     private var chatService: ChatServiceProtocol
     private let persistence: PersistenceController
@@ -75,6 +109,7 @@ final class ChatViewModel: ObservableObject {
     private var currentThreadId: String?
     private let modelIdProvider: () -> String?
     private let isAuthenticatedProvider: () -> Bool
+    private var modelCapabilitiesProvider: (String) -> [String] = { _ in [] }
 
     private final class StreamDeltaBuffer {
         private let lock = NSLock()
@@ -118,8 +153,38 @@ final class ChatViewModel: ObservableObject {
         self.onQuotaExceeded = onQuotaExceeded
     }
 
+    func configureModelCapabilities(provider: @escaping (String) -> [String]) {
+        self.modelCapabilitiesProvider = provider
+    }
+
+    /// Returns true if the current model supports vision (image inputs).
+    var currentModelSupportsVision: Bool {
+        guard let modelId = modelIdProvider() else { return false }
+        return modelCapabilitiesProvider(modelId).contains("vision")
+    }
+
+    /// Returns the display name of the current model for UI messages.
+    var currentModelDisplayName: String? {
+        modelIdProvider()
+    }
+
     func updateChatService(_ service: ChatServiceProtocol) {
         self.chatService = service
+    }
+
+    /// Re-sends the message that was blocked by the vision capability check.
+    func resendAfterVisionResolved() {
+        guard let text = visionBlockedText else { return }
+        visionBlockedText = nil
+        send(text: text)
+    }
+
+    /// Removes image attachments and re-sends only text + remaining file attachments.
+    func removeImagesAndResend() {
+        pendingAttachments.removeAll { $0.kind == .photo || $0.kind == .camera }
+        guard let text = visionBlockedText else { return }
+        visionBlockedText = nil
+        send(text: text)
     }
 
     func loadChat(threadId: String) async {
@@ -175,13 +240,45 @@ final class ChatViewModel: ObservableObject {
             latestError = "Attachment validation failed. Please try again."
             return
         }
-        
-        // All attachments validated; include summary in message
-        let attachmentSummary = pendingAttachments.map { $0.name }.joined(separator: ", ")
-        let payloadText = attachmentSummary.isEmpty ? trimmed : "\(trimmed)\n\nAttachments: \(attachmentSummary)"
+
+        // Check vision capability for image attachments
+        let hasImageAttachments = pendingAttachments.contains { $0.kind == .photo || $0.kind == .camera }
+        if hasImageAttachments && !currentModelSupportsVision {
+            visionBlockedText = trimmed  // preserve text for re-send
+            showVisionRequired = true
+            return  // ← Show sheet instead of sending
+        }
+        visionBlockedText = nil
+
+        // Build API attachments from real data
+        let apiAttachments: [[String: Any]] = pendingAttachments.compactMap { attachment in
+            switch attachment.kind {
+            case .photo, .camera:
+                guard let dataURL = attachment.dataURL else { return nil }
+                return [
+                    "type": "image_url",
+                    "name": attachment.name,
+                    "mime": attachment.mimeType,
+                    "size": attachment.fileSize,
+                    "image_url": ["url": dataURL]
+                ] as [String: Any]
+            case .file:
+                guard let text = attachment.textContent else { return nil }
+                return [
+                    "type": "text_file",
+                    "name": attachment.name,
+                    "mime": attachment.mimeType,
+                    "size": attachment.fileSize,
+                    "text": text
+                ] as [String: Any]
+            }
+        }
+
+        let storedAttachments = pendingAttachments
+        let payloadText = trimmed
 
         withAnimation(DS.Motion.quickSpring) {
-            messages.append(ChatMessage(id: UUID(), role: .user, text: payloadText, isStreaming: false, isFailed: false, remoteId: nil))
+            messages.append(ChatMessage(id: UUID(), role: .user, text: payloadText, isStreaming: false, isFailed: false, remoteId: nil, attachments: storedAttachments))
         }
         pendingAttachments.removeAll()
 
@@ -216,7 +313,7 @@ final class ChatViewModel: ObservableObject {
             if let lastIndex = messages.lastIndex(where: { $0.role == .user && $0.remoteId == nil }) {
                 messages[lastIndex].remoteId = created.remoteId
             }
-            startStreaming(chatId: currentThreadId, model: modelId, messages: history)
+            startStreaming(chatId: currentThreadId, model: modelId, messages: history, attachments: apiAttachments.isEmpty ? nil : apiAttachments)
         } catch {
             if let lastIndex = messages.lastIndex(where: { $0.role == .user }) {
                 messages[lastIndex].isFailed = true
@@ -336,13 +433,330 @@ final class ChatViewModel: ObservableObject {
         guard messages.isEmpty else { return }
     }
 
-    func addMockAttachment(kind: AttachmentKind) {
-        let name = "\(kind.title) \(pendingAttachments.count + 1)"
-        pendingAttachments.append(Attachment(id: UUID(), kind: kind, name: name))
+    func addImageAttachment(image: UIImage, name: String = "Photo") {
+        guard let jpegData = image.jpegData(compressionQuality: 0.8) else { return }
+        let resized = Self.resizeImageData(jpegData, maxDimension: 2048)
+        guard resized.count <= Self.MAX_IMAGE_SIZE else {
+            latestError = "Image too large (max 8MB)."
+            return
+        }
+        let displayName = "\(name) \(pendingAttachments.count + 1)"
+        pendingAttachments.append(Attachment(
+            id: UUID(), kind: .photo, name: displayName,
+            imageData: resized, textContent: nil,
+            mimeType: "image/jpeg", fileSize: resized.count
+        ))
+    }
+
+    func addCameraAttachment(image: UIImage) {
+        guard let jpegData = image.jpegData(compressionQuality: 0.8) else { return }
+        let resized = Self.resizeImageData(jpegData, maxDimension: 2048)
+        guard resized.count <= Self.MAX_IMAGE_SIZE else {
+            latestError = "Photo too large (max 8MB)."
+            return
+        }
+        pendingAttachments.append(Attachment(
+            id: UUID(), kind: .camera, name: "Camera Photo",
+            imageData: resized, textContent: nil,
+            mimeType: "image/jpeg", fileSize: resized.count
+        ))
+    }
+
+    func addFileAttachment(url: URL) {
+        guard url.startAccessingSecurityScopedResource() else {
+            latestError = "Cannot access file."
+            return
+        }
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        let filename = url.lastPathComponent
+        let ext = url.pathExtension.lowercased()
+        let imageExtensions = Set(["jpg", "jpeg", "png", "heic", "heif", "webp", "gif", "bmp", "tiff"])
+        let textExtensions = Set(["txt", "md", "csv", "json", "xml", "yaml", "yml", "log", "swift", "py", "js", "ts", "html", "css", "c", "cpp", "h", "java", "kt", "rb", "go", "rs", "sh", "sql", "r"])
+
+        guard let data = try? Data(contentsOf: url) else {
+            latestError = "Could not read file."
+            return
+        }
+
+        if imageExtensions.contains(ext) {
+            guard let image = UIImage(data: data) else {
+                latestError = "Could not load image."
+                return
+            }
+            addImageAttachment(image: image, name: filename)
+        } else if textExtensions.contains(ext) {
+            guard data.count <= Self.MAX_TEXT_FILE_SIZE else {
+                latestError = "Text file too large (max 1MB)."
+                return
+            }
+            guard let text = String(data: data, encoding: .utf8) else {
+                latestError = "File is not valid text."
+                return
+            }
+            pendingAttachments.append(Attachment(
+                id: UUID(), kind: .file, name: filename,
+                imageData: nil, textContent: text,
+                mimeType: "text/plain", fileSize: data.count
+            ))
+        } else if ext == "pdf" {
+            guard data.count <= Self.MAX_TEXT_FILE_SIZE else {
+                latestError = "PDF too large (max 1MB)."
+                return
+            }
+            if let text = Self.extractTextFromPDF(url: url), !text.isEmpty {
+                pendingAttachments.append(Attachment(
+                    id: UUID(), kind: .file, name: filename,
+                    imageData: nil, textContent: text,
+                    mimeType: "text/plain", fileSize: text.utf8.count
+                ))
+            } else {
+                latestError = "Could not extract text from PDF."
+            }
+        } else {
+            latestError = "Unsupported file type: .\(ext)"
+        }
+    }
+
+    private static func resizeImageData(_ data: Data, maxDimension: CGFloat) -> Data {
+        guard let image = UIImage(data: data) else { return data }
+        let size = image.size
+        guard size.width > maxDimension || size.height > maxDimension else { return data }
+        let scale = min(maxDimension / size.width, maxDimension / size.height)
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        let resized = renderer.jpegData(withCompressionQuality: 0.8) { ctx in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+        return resized
+    }
+
+    private static func extractTextFromPDF(url: URL) -> String? {
+        guard let pdf = PDFDocument(url: url) else { return nil }
+        var text = ""
+        let pageCount = min(pdf.pageCount, 20)
+        for i in 0..<pageCount {
+            guard let page = pdf.page(at: i) else { continue }
+            if let pageText = page.string {
+                text += pageText + "\n"
+            }
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
     }
 
     func removeAttachment(_ attachment: Attachment) {
         pendingAttachments.removeAll { $0.id == attachment.id }
+    }
+
+    // MARK: - Generation Chat Support
+
+    var selectedModelId: String? {
+        modelIdProvider()
+    }
+
+    var isGenerationChat: Bool {
+        guard let modelId = modelIdProvider() else { return false }
+        return FalModel.isGenerationModel(modelId)
+    }
+
+    var generationMode: GenerationType? {
+        guard let modelId = modelIdProvider() else { return nil }
+        return FalModel.generationType(for: modelId)
+    }
+
+    @Published var generationImageSize: String = "square_hd"
+    @Published var generationImageStyle: String = "photo"
+    @Published var generationVideoDuration: String = "5"
+    @Published var generationVideoResolution: String = "720p"
+
+    private var generationService: FalAIServiceProtocol?
+    private var generationPollingTask: Task<Void, Never>?
+
+    func setGenerationService(_ service: FalAIServiceProtocol) {
+        self.generationService = service
+    }
+
+    func sendGenerationMessage(text: String) async {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let modelId = modelIdProvider(), !modelId.isEmpty else { return }
+        guard let mode = generationMode else { return }
+        guard let service = generationService else {
+            latestError = "Generation service not available. Please try again."
+            return
+        }
+        guard ensureQuotaAvailable() else { return }
+        latestError = nil
+
+        // Add user message
+        let userMsgId = UUID()
+        withAnimation(DS.Motion.quickSpring) {
+            messages.append(ChatMessage(id: userMsgId, role: .user, text: trimmed, isStreaming: false, isFailed: false))
+        }
+
+        // Add generating placeholder
+        let assistantMsgId = UUID()
+        let progressText = mode == .image ? "Creating your image..." : "Creating your video..."
+        withAnimation(DS.Motion.quickSpring) {
+            messages.append(ChatMessage(
+                id: assistantMsgId, role: .assistant, text: "", isStreaming: false, isFailed: false,
+                isGenerating: true, generationType: mode, generationProgress: progressText
+            ))
+        }
+
+        do {
+            let response: GenerationSubmitResponse
+            if mode == .image {
+                response = try await service.submitImage(
+                    prompt: trimmed, negativePrompt: nil, modelId: modelId, chatId: nil,
+                    imageSize: generationImageSize, numImages: 1, style: generationImageStyle
+                )
+            } else {
+                response = try await service.submitVideo(
+                    prompt: trimmed, negativePrompt: nil, modelId: modelId, chatId: nil,
+                    duration: generationVideoDuration, resolution: generationVideoResolution, imageUrl: nil
+                )
+            }
+
+            // Update generation ID — find by stable UUID, not index
+            updateGenerationMessage(id: assistantMsgId) { $0.generationId = response.id }
+
+            // Poll in a cancellable task
+            generationPollingTask?.cancel()
+            generationPollingTask = Task { [weak self] in
+                await self?.pollGeneration(id: response.id, messageId: assistantMsgId, service: service, mode: mode)
+            }
+            await generationPollingTask?.value
+        } catch {
+            updateGenerationMessage(id: assistantMsgId) {
+                $0.isGenerating = false
+                $0.isFailed = true
+                $0.generationProgress = nil
+                $0.text = "Generation failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func cancelGeneration(messageId: UUID) {
+        generationPollingTask?.cancel()
+        generationPollingTask = nil
+        guard let genId = messages.first(where: { $0.id == messageId })?.generationId else { return }
+        updateGenerationMessage(id: messageId) {
+            $0.isGenerating = false
+            $0.isFailed = true
+            $0.generationProgress = nil
+            $0.text = "Generation cancelled."
+        }
+        let service = generationService
+        Task { [weak self] in
+            _ = self  // prevent unused warning
+            try? await service?.cancel(generationId: genId)
+        }
+    }
+
+    func regenerateGeneration(messageId: UUID) {
+        guard let idx = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        let userIdx = messages[..<idx].lastIndex(where: { $0.role == .user })
+        guard let userIdx else { return }
+        let prompt = messages[userIdx].text
+        // Reset the result message to generating state instead of removing
+        updateGenerationMessage(id: messageId) {
+            $0.isGenerating = true
+            $0.isFailed = false
+            $0.generationResultUrl = nil
+            $0.generationProgress = "Regenerating..."
+            $0.generationId = nil
+            $0.text = ""
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            guard let modelId = self.modelIdProvider(), !modelId.isEmpty,
+                  let mode = self.generationMode,
+                  let service = self.generationService else { return }
+            do {
+                let response: GenerationSubmitResponse
+                if mode == .image {
+                    response = try await service.submitImage(
+                        prompt: prompt, negativePrompt: nil, modelId: modelId, chatId: nil,
+                        imageSize: self.generationImageSize, numImages: 1, style: self.generationImageStyle
+                    )
+                } else {
+                    response = try await service.submitVideo(
+                        prompt: prompt, negativePrompt: nil, modelId: modelId, chatId: nil,
+                        duration: self.generationVideoDuration, resolution: self.generationVideoResolution, imageUrl: nil
+                    )
+                }
+                self.updateGenerationMessage(id: messageId) { $0.generationId = response.id }
+                self.generationPollingTask?.cancel()
+                self.generationPollingTask = Task { [weak self] in
+                    await self?.pollGeneration(id: response.id, messageId: messageId, service: service, mode: mode)
+                }
+                await self.generationPollingTask?.value
+            } catch {
+                self.updateGenerationMessage(id: messageId) {
+                    $0.isGenerating = false
+                    $0.isFailed = true
+                    $0.generationProgress = nil
+                    $0.text = "Regeneration failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    /// Thread-safe mutation of a generation message by its stable UUID.
+    private func updateGenerationMessage(id: UUID, update: (inout ChatMessage) -> Void) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        update(&messages[idx])
+    }
+
+    private func pollGeneration(id: String, messageId: UUID, service: FalAIServiceProtocol, mode: GenerationType) async {
+        let interval: UInt64 = mode == .image ? 2_000_000_000 : 4_000_000_000
+        let maxAttempts = mode == .image ? 60 : 120
+
+        for _ in 0..<maxAttempts {
+            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: interval)
+            guard !Task.isCancelled else { return }
+
+            do {
+                let status = try await service.checkStatus(generationId: id)
+
+                switch status.status {
+                case "completed":
+                    updateGenerationMessage(id: messageId) {
+                        $0.isGenerating = false
+                        $0.generationResultUrl = status.resultUrl
+                        $0.generationProgress = nil
+                    }
+                    Haptics.impact(.soft)
+                    return
+                case "failed":
+                    updateGenerationMessage(id: messageId) {
+                        $0.isGenerating = false
+                        $0.isFailed = true
+                        $0.generationProgress = nil
+                        $0.text = status.errorMessage ?? "Generation failed."
+                    }
+                    return
+                case "processing":
+                    updateGenerationMessage(id: messageId) { $0.generationProgress = "Almost ready..." }
+                default:
+                    if let pos = status.queuePosition, pos > 0 {
+                        updateGenerationMessage(id: messageId) { $0.generationProgress = "Queue position: \(pos)" }
+                    }
+                }
+            } catch {
+                // Transient error, keep polling
+            }
+        }
+
+        // Timeout
+        updateGenerationMessage(id: messageId) {
+            $0.isGenerating = false
+            $0.isFailed = true
+            $0.generationProgress = nil
+            $0.text = "Generation timed out. Please try again."
+        }
     }
 
     /// Validates attachments before send. Throws if validation fails.
@@ -356,14 +770,24 @@ final class ChatViewModel: ObservableObject {
             )
         }
         
-        // Check for unsupported types - FAIL immediately instead of filtering
-        let unsupported = attachments.filter { !Self.SUPPORTED_TYPES.contains($0.kind) }
-        if !unsupported.isEmpty {
-            let typeList = unsupported.map { $0.kind.title }.joined(separator: ", ")
-            let names = unsupported.map { $0.name }.joined(separator: ", ")
-            throw AttachmentValidationError(
-                message: "\(typeList) not supported yet. Only photos can be shared. Remove: \(names)"
-            )
+        // Validate each attachment has actual data
+        for attachment in attachments {
+            switch attachment.kind {
+            case .photo, .camera:
+                guard attachment.imageData != nil else {
+                    throw AttachmentValidationError(message: "'\(attachment.name)' has no image data.")
+                }
+                if attachment.fileSize > Self.MAX_IMAGE_SIZE {
+                    throw AttachmentValidationError(message: "'\(attachment.name)' is too large (max 8MB).")
+                }
+            case .file:
+                guard attachment.textContent != nil else {
+                    throw AttachmentValidationError(message: "'\(attachment.name)' has no content.")
+                }
+                if attachment.fileSize > Self.MAX_TEXT_FILE_SIZE {
+                    throw AttachmentValidationError(message: "'\(attachment.name)' is too large (max 1MB).")
+                }
+            }
         }
     }
 
@@ -378,7 +802,7 @@ final class ChatViewModel: ObservableObject {
         return true
     }
 
-    private func startStreaming(chatId: String, model: String, messages: [ChatMessageSummary]) {
+    private func startStreaming(chatId: String, model: String, messages: [ChatMessageSummary], attachments: [[String: Any]]? = nil) {
         guard isAuthenticatedProvider(), chatId.isEmpty == false, model.isEmpty == false, currentThreadId?.isEmpty == false else { return }
         stopStreaming()
 
@@ -392,7 +816,7 @@ final class ChatViewModel: ObservableObject {
         streamingTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let streamedMessageId = try await self.streamWithRetryOnce(chatId: chatId, model: model, messages: messages, messageID: messageID)
+                let streamedMessageId = try await self.streamWithRetryOnce(chatId: chatId, model: model, messages: messages, attachments: attachments, messageID: messageID)
                 if let index = self.messages.firstIndex(where: { $0.id == messageID }) {
                     self.messages[index].isStreaming = false
                     // Update local message with remote ID from backend for future sync
@@ -415,6 +839,29 @@ final class ChatViewModel: ObservableObject {
                     self.streamingTask = nil
                     return
                 }
+                // Handle rate limit / quota errors with creative UI
+                if let taiError = error as? TABAIError, taiError.isRateLimited {
+                    // Remove the empty assistant message
+                    self.messages.removeAll { $0.id == messageID }
+                    self.isStreaming = false
+                    self.streamingPhase = .idle
+                    self.streamingTask = nil
+                    // Show the creative limit-reached sheet
+                    let code = taiError.rateLimitCode ?? ""
+                    let modelName = self.modelIdProvider()?.components(separatedBy: "/").last?.capitalized ?? "this model"
+                    switch code {
+                    case "CHAT_DAILY_CATEGORY_LIMIT":
+                        self.limitReachedType = .chatDailyCategory(modelName: modelName, used: 0, limit: 0)
+                    case "CHAT_CATEGORY_LOCKED":
+                        self.limitReachedType = .chatModelLocked(modelName: modelName, requiredTier: "Pro")
+                    case "MODEL_LOCKED", "UPGRADE_REQUIRED_EXPENSIVE_MODEL":
+                        self.limitReachedType = .chatModelLocked(modelName: modelName, requiredTier: "Pro")
+                    default:
+                        self.limitReachedType = .chatDailyCategory(modelName: modelName, used: 0, limit: 0)
+                    }
+                    self.showLimitReached = true
+                    return
+                }
                 if let index = self.messages.firstIndex(where: { $0.id == messageID }) {
                     self.messages[index].isStreaming = false
                     self.messages[index].isFailed = true
@@ -427,7 +874,7 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func streamWithRetryOnce(chatId: String, model: String, messages: [ChatMessageSummary], messageID: UUID) async throws -> String? {
+    private func streamWithRetryOnce(chatId: String, model: String, messages: [ChatMessageSummary], attachments: [[String: Any]]? = nil, messageID: UUID) async throws -> String? {
         var attempt = 0
         while true {
             let buffer = StreamDeltaBuffer()
@@ -459,7 +906,7 @@ final class ChatViewModel: ObservableObject {
             }
 
             do {
-                streamedMessageId = try await chatService.streamChat(chatId: chatId, model: model, messages: messages, onToken: { delta in
+                streamedMessageId = try await chatService.streamChat(chatId: chatId, model: model, messages: messages, attachments: attachments, onToken: { delta in
                     buffer.append(delta)
                 }, onMetadata: { poweredBy in
                     Task { @MainActor in

@@ -1,58 +1,57 @@
-# TAI
+# TABAI
 
-TAI production architecture is Cloudflare-native and OpenRouter-only.
+Premium multi-model AI assistant — web, iOS, and Android.
 
 ## Production
 
-- Primary product origin: https://ai.gravitilabs.com
-- Frontend app: served at the same origin
-- Backend API: same origin under /api/*
-- Backend runtime: Cloudflare Worker + D1 (project: tai-edge)
-- Model provider: OpenRouter only
+- **URL:** https://ai.gravitilabs.com
+- **Backend:** Hetzner server (Node.js + PM2 + Nginx)
+- **Database:** SQLite via better-sqlite3
+- **Models:** OpenRouter (inference + model list)
+- **Media:** fal.ai (image/video generation)
+- **Email:** Resend (tabai@gravitilabs.com)
+- **DNS:** Cloudflare → Hetzner
 
-No production runtime dependency exists on OpenWebUI, Hugging Face, or Ollama.
+## Project Structure
 
-## Active projects
-
-- hf-taiapp: frontend source (Next.js static export)
-- tai-edge: backend API (Cloudflare Worker + D1)
-- ios/TAI: iOS app source
-
-## Local development
-
-Frontend:
-
-```bash
-cd hf-taiapp
-npm install
-npm run dev
+```
+backend/     → Node.js API server (Hono + SQLite)
+web/         → Next.js 14 static export frontend
+ios/TABAI/   → SwiftUI native iOS app
+android/     → Android app (Kotlin)
+assets/      → App icon, logos
+docs/        → Architecture, milestones, integration plans
+scripts/     → Build and project generation scripts
 ```
 
-Backend:
+## Quick Start
+
+### Frontend
 
 ```bash
-cd tai-edge
-npm install
-npx wrangler dev
+cd web && npm install
+npm run dev          # Dev server on :3000
+npm run build        # Static export → .next-build/
+```
+
+### Backend
+
+```bash
+cd backend && npm install
+npm run dev          # Local dev on :3001
+npm run migrate      # Apply SQLite migrations
+npm run start        # Production server
+```
+
+### iOS
+
+```bash
+./scripts/build-ios-sim.sh          # Build for simulator
+./scripts/generate-ios-project.sh   # Generate Xcode project
 ```
 
 ## Deployment
 
-Frontend build artifacts:
+Backend runs on Hetzner via PM2. Nginx serves the static frontend and reverse-proxies `/api/*` to Node.js on port 3001.
 
-```bash
-cd hf-taiapp
-npm run build
-```
-
-Backend deploy:
-
-```bash
-cd tai-edge
-npx wrangler deploy
-```
-
-## Notes
-
-- docker-compose files in repository are local-only legacy tooling.
-- API docs are served by the worker at /docs.
+API docs are auto-generated at `/docs`.

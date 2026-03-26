@@ -1,24 +1,25 @@
 import Foundation
 import Combine
+import CryptoKit
 
 @MainActor
 final class PersistenceController: ObservableObject {
     static let shared = PersistenceController()
-    private static let threadsKey = "tai.cache.threads"
-    private static let messagesKey = "tai.cache.messages"
+    private static let threadsKey = "tai.cache.threads.enc"
+    private static let messagesKey = "tai.cache.messages.enc"
 
     @Published private(set) var threads: [ChatThreadRecord] = []
     @Published private(set) var messages: [ChatMessageRecord] = []
 
     private init() {
         let decoder = JSONDecoder()
-        if let threadData = UserDefaults.standard.data(forKey: Self.threadsKey),
+        if let threadData = Self.loadEncrypted(forKey: Self.threadsKey),
            let decodedThreads = try? decoder.decode([ChatThreadRecord].self, from: threadData) {
             threads = decodedThreads
         } else {
             threads = []
         }
-        if let messageData = UserDefaults.standard.data(forKey: Self.messagesKey),
+        if let messageData = Self.loadEncrypted(forKey: Self.messagesKey),
            let decodedMessages = try? decoder.decode([ChatMessageRecord].self, from: messageData) {
             messages = decodedMessages
         } else {
@@ -131,13 +132,46 @@ final class PersistenceController: ObservableObject {
         messages.filter { $0.threadRemoteId == threadRemoteId }
     }
 
+    // MARK: - Encrypted persistence
+
+    private static func encryptionKey() -> SymmetricKey {
+        if let keyData = KeychainStore.load(service: "com.tabai.encryption", account: "dataKey") {
+            return SymmetricKey(data: keyData)
+        }
+        let newKey = SymmetricKey(size: .bits256)
+        let keyData = newKey.withUnsafeBytes { Data($0) }
+        KeychainStore.save(data: keyData, service: "com.tabai.encryption", account: "dataKey")
+        return newKey
+    }
+
+    private static func encrypt(_ data: Data) -> Data? {
+        guard let sealed = try? AES.GCM.seal(data, using: encryptionKey()) else { return nil }
+        return sealed.combined
+    }
+
+    private static func decrypt(_ data: Data) -> Data? {
+        guard let box = try? AES.GCM.SealedBox(combined: data) else { return nil }
+        return try? AES.GCM.open(box, using: encryptionKey())
+    }
+
+    private static func saveEncrypted(_ data: Data, forKey key: String) {
+        if let encrypted = encrypt(data) {
+            UserDefaults.standard.set(encrypted, forKey: key)
+        }
+    }
+
+    private static func loadEncrypted(forKey key: String) -> Data? {
+        guard let encrypted = UserDefaults.standard.data(forKey: key) else { return nil }
+        return decrypt(encrypted)
+    }
+
     private func persist() {
         let encoder = JSONEncoder()
         if let threadData = try? encoder.encode(threads) {
-            UserDefaults.standard.set(threadData, forKey: Self.threadsKey)
+            Self.saveEncrypted(threadData, forKey: Self.threadsKey)
         }
         if let messageData = try? encoder.encode(messages) {
-            UserDefaults.standard.set(messageData, forKey: Self.messagesKey)
+            Self.saveEncrypted(messageData, forKey: Self.messagesKey)
         }
     }
 }

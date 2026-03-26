@@ -46,7 +46,7 @@ struct StoreEntitlementSyncService {
         }
 
         if AppConfig.enableStoreKitDebugLogs {
-            print("TAI entitlement sync request: provider=apple productId=\(transaction.productID) tx=\(transaction.id)")
+            TABLogger.debug("TAI entitlement sync request: provider=apple productId=\(transaction.productID) tx=\(transaction.id)")
         }
 
         let body = try JSONSerialization.data(withJSONObject: payload)
@@ -62,7 +62,7 @@ struct StoreEntitlementSyncService {
 
         guard response.statusCode == 202 else {
             if AppConfig.enableStoreKitDebugLogs {
-                print("TAI entitlement sync failed status: \(response.statusCode) code=\(responseCode ?? "<none>") message=\(responseMessage)")
+                TABLogger.debug("TAI entitlement sync failed status: \(response.statusCode) code=\(responseCode ?? "<none>") message=\(responseMessage)")
             }
             throw Error.backendRejected(
                 statusCode: response.statusCode,
@@ -83,9 +83,9 @@ struct StoreEntitlementSyncService {
             throw Error.invalidResponse(statusCode: response.statusCode, bodySnippet: bodySnippet)
         }
         if AppConfig.enableStoreKitDebugLogs {
-            print("TAI entitlement sync response: state=\(verificationState) code=\(code)")
+            TABLogger.debug("TAI entitlement sync response: state=\(verificationState) code=\(code)")
             if let debugSummary, debugSummary.isEmpty == false {
-                print("TAI entitlement sync debug: \(debugSummary)")
+                TABLogger.debug("TAI entitlement sync debug: \(debugSummary)")
             }
         }
         return StoreSyncResult(

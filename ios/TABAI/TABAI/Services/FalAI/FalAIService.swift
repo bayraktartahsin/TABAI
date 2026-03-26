@@ -86,4 +86,9 @@ final class FalAIService: FalAIServiceProtocol {
             throw TABAIError.invalidResponse
         }
     }
+
+    func fetchQuota() async throws -> GenerationQuotaSnapshot {
+        let url = client.baseURL.appendingPathComponent("api/generate/quota")
+        return try await client.requestJSON(method: "GET", url: url)
+    }
 }

@@ -50,7 +50,7 @@ struct MockChatService: ChatServiceProtocol {
         "This is a mock response."
     }
 
-    func streamChat(chatId: String, model: String, messages: [ChatMessageSummary], onToken: @escaping (String) -> Void, onMetadata: ((String) -> Void)? = nil) async throws -> String? {
+    func streamChat(chatId: String, model: String, messages: [ChatMessageSummary], attachments: [[String: Any]]? = nil, onToken: @escaping (String) -> Void, onMetadata: ((String) -> Void)? = nil) async throws -> String? {
         let words = ["Streaming", "mock", "response", "from", "local", "service."]
         for word in words {
             try? await Task.sleep(nanoseconds: 120_000_000)

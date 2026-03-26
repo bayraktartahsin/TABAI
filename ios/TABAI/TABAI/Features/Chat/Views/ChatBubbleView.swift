@@ -31,14 +31,60 @@ struct ChatBubbleView: View {
 
     private var userMessage: some View {
         VStack(alignment: .trailing, spacing: 6) {
-            Text(message.text)
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(DS.Colors.textPrimary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(userBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            VStack(alignment: .trailing, spacing: 8) {
+                // Inline attachment thumbnails
+                if !message.attachments.isEmpty {
+                    let imageAttachments = message.attachments.filter { $0.thumbnail != nil }
+                    let fileAttachments = message.attachments.filter { $0.thumbnail == nil }
+
+                    if !imageAttachments.isEmpty {
+                        HStack(spacing: 4) {
+                            ForEach(imageAttachments.prefix(3)) { att in
+                                if let thumb = att.thumbnail {
+                                    Image(uiImage: thumb)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 72, height: 72)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                }
+                            }
+                            if imageAttachments.count > 3 {
+                                Text("+\(imageAttachments.count - 3)")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(DS.Colors.textSecondary)
+                                    .frame(width: 36, height: 72)
+                                    .background(DS.Colors.fieldBackground)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }
+                        }
+                    }
+
+                    if !fileAttachments.isEmpty {
+                        ForEach(fileAttachments) { att in
+                            HStack(spacing: 4) {
+                                Image(systemName: "doc.text")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(DS.Colors.textSecondary)
+                                Text(att.name)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(DS.Colors.textSecondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                }
+
+                if !message.text.isEmpty {
+                    Text(message.text)
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(DS.Colors.textPrimary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(userBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .frame(maxWidth: .infinity, alignment: .trailing)
 
             MessageActionMenu(
                 isUser: true,

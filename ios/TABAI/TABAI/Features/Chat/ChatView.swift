@@ -1,5 +1,7 @@
 import SwiftUI
 import UIKit
+import PhotosUI
+import UniformTypeIdentifiers
 
 struct ChatView: View {
     @EnvironmentObject private var appEnvironment: AppEnvironment
@@ -24,6 +26,13 @@ struct ChatView: View {
     @AppStorage("tai.hasAcceptedAIDataSharing") private var hasAcceptedAIDataSharing = false
     @State private var showAIConsentSheet: Bool = false
     @State private var aiConsentLegalDestination: LegalLinkDestination?
+    @State private var fullScreenGenerationMessage: ChatViewModel.ChatMessage?
+    @State private var showPhotoPicker: Bool = false
+    @State private var photoPickerItems: [PhotosPickerItem] = []
+    @State private var showCamera: Bool = false
+    @State private var capturedCameraImage: UIImage?
+    @State private var showDocumentPicker: Bool = false
+    @State private var isVisionModelSwitch: Bool = false
 
     private let suggestions = [
         "Explain quantum computing simply",
@@ -64,9 +73,18 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity)
             } else if viewModel.messages.isEmpty {
-                emptyState
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                if viewModel.isGenerationChat, let mode = viewModel.generationMode {
+                    GenerationWelcomeCard(generationType: mode) { suggestion in
+                        composerText = suggestion
+                        handleSend()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity)
+                } else {
+                    emptyState
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .transition(.opacity)
+                }
             } else {
                 messageList
                     .transition(.opacity)
@@ -78,6 +96,31 @@ struct ChatView: View {
                 .padding(.horizontal, DS.Layout.horizontalPadding)
                 .padding(.top, 8)
                 .padding(.bottom, 8)
+                .background {
+                    ZStack(alignment: .top) {
+                        // Solid background that covers the composer area
+                        Color(uiColor: UIColor { trait in
+                            trait.userInterfaceStyle == .dark
+                                ? UIColor(red: 0.06, green: 0.06, blue: 0.07, alpha: 1)
+                                : UIColor(red: 0.98, green: 0.98, blue: 0.99, alpha: 1)
+                        })
+                        // Fade-in gradient at the very top edge for a smooth transition
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: Color(uiColor: UIColor { trait in
+                                    trait.userInterfaceStyle == .dark
+                                        ? UIColor(red: 0.06, green: 0.06, blue: 0.07, alpha: 1)
+                                        : UIColor(red: 0.98, green: 0.98, blue: 0.99, alpha: 1)
+                                }), location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 20)
+                    }
+                    .ignoresSafeArea(.all, edges: .bottom)
+                }
         }
         .taiFullscreen {
             GradientBackground()
@@ -90,7 +133,11 @@ struct ChatView: View {
                     appEnvironment.selectedTab = .subscriptions
                 }
             )
+            viewModel.configureModelCapabilities { [weak appEnvironment] modelId in
+                appEnvironment?.availableModels.first(where: { $0.id == modelId })?.capabilities ?? []
+            }
             viewModel.startDemoIfNeeded()
+            viewModel.setGenerationService(appEnvironment.generationService)
             if isSignedIn && !hasAcceptedAIDataSharing {
                 showAIConsentSheet = true
             }
@@ -105,6 +152,11 @@ struct ChatView: View {
         }
         .onChange(of: appEnvironment.selectedModelId) { oldValue, newValue in
             guard oldValue != nil, oldValue != newValue else { return }
+            // Skip chat reset when switching model for vision capability
+            if isVisionModelSwitch {
+                isVisionModelSwitch = false
+                return
+            }
             viewModel.beginNewChatForModelSwitch()
             appEnvironment.selectedThreadId = nil
             appEnvironment.selectedTab = .chat
@@ -116,30 +168,24 @@ struct ChatView: View {
             ComposerToolsSheet(
                 onSelectPhoto: {
                     showComposerToolsSheet = false
-                    viewModel.addMockAttachment(kind: .photo)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        showPhotoPicker = true
+                    }
                 },
                 onSelectCamera: {
                     showComposerToolsSheet = false
-                    viewModel.addMockAttachment(kind: .camera)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        showCamera = true
+                    }
                 },
                 onSelectFile: {
                     showComposerToolsSheet = false
-                    viewModel.addMockAttachment(kind: .file)
-                },
-                onGenerateImage: {
-                    showComposerToolsSheet = false
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        showImageGenerator = true
-                    }
-                },
-                onGenerateVideo: {
-                    showComposerToolsSheet = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        showVideoGenerator = true
+                        showDocumentPicker = true
                     }
                 }
             )
-            .presentationDetents([.height(420), .medium])
+            .presentationDetents([.height(320)])
             .taiSheetChrome()
         }
         .sheet(isPresented: $showImageGenerator) {
@@ -150,10 +196,70 @@ struct ChatView: View {
             VideoGeneratorView(service: appEnvironment.generationService)
                 .environmentObject(appEnvironment)
         }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems, maxSelectionCount: max(1, 6 - viewModel.pendingAttachments.count), matching: .images)
+        .onChange(of: photoPickerItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await processPickedPhotos(items) }
+            photoPickerItems = []
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraCaptureView(image: $capturedCameraImage)
+                .ignoresSafeArea()
+        }
+        .onChange(of: capturedCameraImage) { _, newImage in
+            guard let image = newImage else { return }
+            capturedCameraImage = nil
+            viewModel.addCameraAttachment(image: image)
+        }
+        .sheet(isPresented: $showDocumentPicker) {
+            DocumentPickerView { urls in
+                for url in urls {
+                    viewModel.addFileAttachment(url: url)
+                }
+            }
+        }
         .sheet(isPresented: $showAuthEntrySheet) {
             SignInView(viewModel: SignInViewModel())
                 .presentationDetents([.large])
                 .taiSheetChrome()
+        }
+        .sheet(isPresented: $viewModel.showVisionRequired) {
+            VisionRequiredSheet(
+                currentModelName: appEnvironment.availableModels.first(where: { $0.id == appEnvironment.selectedModelId })?.displayName,
+                visionModels: appEnvironment.availableModels.filter { $0.capabilities.contains("vision") && $0.canAccess },
+                onSelectModel: { modelId in
+                    isVisionModelSwitch = true
+                    appEnvironment.selectedModelId = modelId
+                    // Re-send after model switch with short delay for model to take effect
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        viewModel.resendAfterVisionResolved()
+                    }
+                },
+                onRemoveImages: {
+                    viewModel.removeImagesAndResend()
+                },
+                onOpenPlans: {
+                    appEnvironment.selectedTab = .subscriptions
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .taiSheetChrome()
+        }
+        .sheet(isPresented: $viewModel.showLimitReached) {
+            if let limitType = viewModel.limitReachedType {
+                LimitReachedSheet(
+                    type: limitType,
+                    onUpgrade: {
+                        viewModel.showLimitReached = false
+                        appEnvironment.selectedTab = .subscriptions
+                    },
+                    onDismiss: {
+                        viewModel.showLimitReached = false
+                    }
+                )
+                .presentationDetents([.medium])
+                .taiSheetChrome()
+            }
         }
         .alert("Voice Input Disabled", isPresented: $showVoiceDisabledAlert) {
             Button("OK", role: .cancel) {}
@@ -162,6 +268,13 @@ struct ChatView: View {
         }
         .fullScreenCover(isPresented: $showAIConsentSheet) {
             aiDataSharingConsentView
+        }
+        .fullScreenCover(item: $fullScreenGenerationMessage) { message in
+            GenerationFullScreenViewer(
+                resultUrl: message.generationResultUrl ?? "",
+                generationType: message.generationType ?? .image,
+                prompt: findUserPrompt(for: message)
+            )
         }
         .onChange(of: voiceInputViewModel.transcript) { _, lines in
             guard let latest = lines.last else { return }
@@ -352,17 +465,32 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     ForEach(viewModel.messages) { message in
-                        ChatBubbleView(
-                            message: message,
-                            streamingPhase: viewModel.streamingPhase,
-                            stopPulseTrigger: viewModel.stopPulseTrigger,
-                            isPrimaryStreamingBubble: message.id == viewModel.messages.last(where: { $0.role == .assistant })?.id,
-                            onCopy: { UIPasteboard.general.string = message.text },
-                            onEdit: { composerText = message.text },
-                            onRegenerate: viewModel.regenerateLastAssistant,
-                            onStop: viewModel.stopStreaming,
-                            onRetry: viewModel.retryLastFailed
-                        )
+                        if message.isGenerating {
+                            GenerationStatusView(
+                                generationType: message.generationType ?? .image,
+                                progress: message.generationProgress,
+                                onCancel: { viewModel.cancelGeneration(messageId: message.id) }
+                            )
+                        } else if let resultUrl = message.generationResultUrl {
+                            GenerationResultBubbleView(
+                                resultUrl: resultUrl,
+                                generationType: message.generationType ?? .image,
+                                onRegenerate: { viewModel.regenerateGeneration(messageId: message.id) },
+                                onFullScreen: { fullScreenGenerationMessage = message }
+                            )
+                        } else {
+                            ChatBubbleView(
+                                message: message,
+                                streamingPhase: viewModel.streamingPhase,
+                                stopPulseTrigger: viewModel.stopPulseTrigger,
+                                isPrimaryStreamingBubble: message.id == viewModel.messages.last(where: { $0.role == .assistant })?.id,
+                                onCopy: { UIPasteboard.general.string = message.text },
+                                onEdit: { composerText = message.text },
+                                onRegenerate: viewModel.regenerateLastAssistant,
+                                onStop: viewModel.stopStreaming,
+                                onRetry: viewModel.retryLastFailed
+                            )
+                        }
                     }
 
                     Color.clear
@@ -561,7 +689,25 @@ struct ChatView: View {
         }
         let textToSend = composerText
         composerText = ""
-        viewModel.send(text: textToSend)
+        if viewModel.isGenerationChat {
+            Task { await viewModel.sendGenerationMessage(text: textToSend) }
+        } else {
+            viewModel.send(text: textToSend)
+        }
+    }
+
+    private func findUserPrompt(for message: ChatViewModel.ChatMessage) -> String {
+        guard let idx = viewModel.messages.firstIndex(where: { $0.id == message.id }) else { return "" }
+        let userMsg = viewModel.messages[..<idx].last(where: { $0.role == .user })
+        return userMsg?.text ?? ""
+    }
+
+    private func processPickedPhotos(_ items: [PhotosPickerItem]) async {
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            guard let image = UIImage(data: data) else { continue }
+            viewModel.addImageAttachment(image: image, name: "Photo")
+        }
     }
 
     private var composerAmbientPlanLine: String? {
@@ -774,8 +920,6 @@ private struct ComposerToolsSheet: View {
     let onSelectPhoto: () -> Void
     let onSelectCamera: () -> Void
     let onSelectFile: () -> Void
-    var onGenerateImage: (() -> Void)? = nil
-    var onGenerateVideo: (() -> Void)? = nil
 
     var body: some View {
         NavigationStack {
@@ -805,27 +949,6 @@ private struct ComposerToolsSheet: View {
                     action: onSelectFile
                 )
 
-                Divider()
-                    .padding(.vertical, 4)
-
-                Text("Create")
-                    .font(DS.Typography.subtitle)
-                    .foregroundStyle(DS.Colors.textPrimary)
-
-                ToolActionRow(
-                    icon: "sparkles",
-                    title: "Generate Image",
-                    subtitle: "Create an image from a text prompt.",
-                    action: { onGenerateImage?() }
-                )
-
-                ToolActionRow(
-                    icon: "film",
-                    title: "Generate Video",
-                    subtitle: "Create a video from a text prompt.",
-                    action: { onGenerateVideo?() }
-                )
-
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, DS.Layout.horizontalPadding)
@@ -835,7 +958,7 @@ private struct ComposerToolsSheet: View {
             .taiFullscreen {
                 GradientBackground()
             }
-            .navigationTitle("Composer Tools")
+            .navigationTitle("Attachments")
             .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -959,5 +1082,70 @@ private struct PulseModifier: ViewModifier {
             .opacity(isPulsing ? 0.6 : 1.0)
             .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
             .onAppear { isPulsing = true }
+    }
+}
+
+// MARK: - Camera Capture
+
+private struct CameraCaptureView: UIViewControllerRepresentable {
+    @Binding var image: UIImage?
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraCaptureView
+        init(_ parent: CameraCaptureView) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            parent.image = info[.originalImage] as? UIImage
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
+    }
+}
+
+// MARK: - Document Picker
+
+private struct DocumentPickerView: UIViewControllerRepresentable {
+    let onPicked: ([URL]) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let types: [UTType] = [.image, .plainText, .json, .yaml, .xml, .sourceCode, .pdf]
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let parent: DocumentPickerView
+        init(_ parent: DocumentPickerView) { self.parent = parent }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            parent.onPicked(urls)
+            parent.dismiss()
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            parent.dismiss()
+        }
     }
 }

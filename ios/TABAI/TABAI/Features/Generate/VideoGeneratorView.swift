@@ -21,6 +21,7 @@ struct VideoGeneratorView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    videoQuotaBadge
                     promptSection
                     modeSelector
                     durationSelector
@@ -48,7 +49,98 @@ struct VideoGeneratorView: View {
                         .foregroundStyle(DS.Colors.textSecondary)
                 }
             }
+            .onAppear { viewModel.loadQuota() }
         }
+    }
+
+    // MARK: - Video Quota Badge
+
+    private var videoQuotaBadge: some View {
+        Group {
+            if let q = viewModel.quota {
+                if !q.generationEnabled || q.videos.limitPerMonth == 0 {
+                    videoUpgradeRequiredBanner
+                } else {
+                    HStack(spacing: 16) {
+                        videoQuotaStat(icon: "film", used: q.videos.usedThisMonth, limit: q.videos.limitPerMonth, label: "videos")
+                        Divider().frame(height: 16)
+                        videoQuotaStat(icon: "gauge", used: q.monthlyUnits.used, limit: q.monthlyUnits.limit, label: "budget")
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(DS.Colors.fieldBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(DS.Colors.glassStroke, lineWidth: 0.5)
+                    )
+                }
+            }
+        }
+    }
+
+    private func videoQuotaStat(icon: String, used: Int, limit: Int, label: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundStyle(videoUsageColor(used: used, limit: limit))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(used)/\(limit)")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(DS.Colors.textPrimary)
+                Text(label)
+                    .font(.system(size: 10))
+                    .foregroundStyle(DS.Colors.textSecondary)
+            }
+        }
+    }
+
+    private func videoUsageColor(used: Int, limit: Int) -> Color {
+        guard limit > 0 else { return .red }
+        let ratio = Double(used) / Double(limit)
+        if ratio >= 0.9 { return .red }
+        if ratio >= 0.7 { return .orange }
+        return DS.Colors.accent
+    }
+
+    private var videoUpgradeRequiredBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Pro plan required")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(DS.Colors.textPrimary)
+                Text("Upgrade to Pro or Power to unlock video generation")
+                    .font(.system(size: 12))
+                    .foregroundStyle(DS.Colors.textSecondary)
+            }
+            Spacer()
+            Button {
+                appEnvironment.selectedTab = .subscriptions
+                dismiss()
+            } label: {
+                Text("Upgrade")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(
+                        LinearGradient(colors: [.orange, .pink], startPoint: .leading, endPoint: .trailing)
+                    )
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.orange.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.orange.opacity(0.2), lineWidth: 0.5)
+                )
+        )
     }
 
     // MARK: - Prompt
@@ -226,21 +318,56 @@ struct VideoGeneratorView: View {
                 }
 
             case .failed(let message):
-                VStack(spacing: 8) {
-                    Text(message)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
+                VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: message.contains("limit") || message.contains("budget") || message.contains("Upgrade") || message.contains("requires") ? "exclamationmark.triangle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(message.contains("limit") || message.contains("Upgrade") || message.contains("requires") ? .orange : .red)
+                            .font(.system(size: 16))
+                        Text(message)
+                            .font(.system(size: 13))
+                            .foregroundStyle(DS.Colors.textPrimary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(message.contains("Upgrade") || message.contains("requires") ? Color.orange.opacity(0.08) : Color.red.opacity(0.08))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(message.contains("Upgrade") || message.contains("requires") ? Color.orange.opacity(0.2) : Color.red.opacity(0.2), lineWidth: 0.5)
+                            )
+                    )
+
+                    if message.contains("Upgrade") || message.contains("limit") || message.contains("budget") || message.contains("requires") || message.contains("plan") {
+                        Button {
+                            appEnvironment.selectedTab = .subscriptions
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .font(.system(size: 14))
+                                Text("Upgrade Plan")
+                                    .font(.system(size: 15, weight: .semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(
+                                LinearGradient(colors: [.orange, .pink], startPoint: .leading, endPoint: .trailing)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: DS.Layout.fieldCornerRadius, style: .continuous))
+                        }
+                    }
+
                     Button {
                         viewModel.reset()
                     } label: {
-                        Text("Try Again")
-                            .font(DS.Typography.button)
-                            .foregroundStyle(.white)
+                        Text(message.contains("Upgrade") || message.contains("requires") ? "Maybe Later" : "Try Again")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(DS.Colors.textSecondary)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(DS.Colors.accent)
-                            .clipShape(RoundedRectangle(cornerRadius: DS.Layout.fieldCornerRadius, style: .continuous))
+                            .frame(height: 40)
                     }
                 }
             }

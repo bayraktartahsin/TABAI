@@ -21,6 +21,8 @@ final class ImageGeneratorViewModel: ObservableObject {
     @Published private(set) var history: [GenerationRecord] = []
     @Published private(set) var progressText: String = ""
     @Published private(set) var queuePosition: Int?
+    @Published private(set) var quota: GenerationQuotaSnapshot?
+    @Published private(set) var quotaError: String?
 
     private let service: FalAIServiceProtocol
     private var pollingTask: Task<Void, Never>?
@@ -73,8 +75,40 @@ final class ImageGeneratorViewModel: ObservableObject {
         !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && state == .idle
     }
 
+    func loadQuota() {
+        Task {
+            do {
+                quota = try await service.fetchQuota()
+                quotaError = nil
+            } catch {
+                quotaError = nil // Non-critical, generate will catch server-side
+            }
+        }
+    }
+
     func generate() {
         guard canGenerate else { return }
+
+        // Client-side quota pre-check
+        if let q = quota {
+            if !q.generationEnabled {
+                state = .failed(message: "Image generation requires Pro or Power plan.")
+                return
+            }
+            if !q.canGenerateImage {
+                if q.images.limitPerDay > 0, q.images.remainingToday == 0 {
+                    state = .failed(message: "Daily image limit reached (\(q.images.limitPerDay)/day). Try again tomorrow or upgrade.")
+                } else if q.images.limitPerMonth > 0, q.images.remainingThisMonth == 0 {
+                    state = .failed(message: "Monthly image limit reached (\(q.images.limitPerMonth)/month). Upgrade for more.")
+                } else if q.images.limitPerMonth == 0 {
+                    state = .failed(message: "Image generation requires a paid plan. Upgrade to get started.")
+                } else {
+                    state = .failed(message: "Monthly generation budget exhausted. Upgrade for more.")
+                }
+                return
+            }
+        }
+
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let neg = negativePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
 

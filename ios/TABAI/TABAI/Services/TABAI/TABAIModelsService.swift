@@ -19,7 +19,7 @@ final class TABAIModelsService: ModelsServiceProtocol {
         let endpoint = client.baseURL.appendingPathComponent("api/models")
         lastEndpoint = endpoint
         if AppConfig.enableNetworkDebugLogs {
-            print("TAI models endpoint: \(endpoint.absoluteString)")
+            TABLogger.debug("TAI models endpoint: \(endpoint.absoluteString)")
         }
 
         let (data, response) = try await client.requestRaw(method: "GET", url: endpoint)

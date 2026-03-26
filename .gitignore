@@ -6,10 +6,13 @@ node_modules/
 .next-build/
 dist/
 build/
+out/
 
 # Environment
 .env
-!.env.example
+.env.local
+.env.*.local
+.dev.vars
 
 # Logs
 npm-debug.log*
@@ -23,27 +26,40 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
+
+# Xcode
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
+DerivedData/
+*.xcuserstate
 
 # Cloudflare
 .wrangler/
-.dev.vars
 
 # Claude Code
 .claude/
 
-# Gradle
+# Gradle / Android
 .gradle/
 local.properties
-
-# Android keystore and release builds
 *.jks
 *.keystore
 *.aab
 *.apk
 
-# Database files and data dumps
+# Database
 *.db
+*.db-journal
+*.db-wal
 d1-export.sql
 d1-data-only.sql
+
+# PSD source files
+*.psd
+
+# Misc
+*.tgz
+*.tar.gz

@@ -289,7 +289,7 @@ private struct MainShellView: View {
             }
         } catch {
             if AppConfig.enableNetworkDebugLogs {
-                print("TAI folder refresh failed: \(error)")
+                TABLogger.debug("TAI folder refresh failed: \(error)")
             }
         }
     }
